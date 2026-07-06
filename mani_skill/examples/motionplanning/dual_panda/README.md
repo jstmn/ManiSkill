@@ -91,18 +91,18 @@ the GIFs are added.
 
 | Environment | Solution script | Task summary | Demo |
 | --- | --- | --- | --- |
-| `DualArmPickCube-v1` | `solutions/bimanual_pass_cube.py` | Pick and pass a cube between the two arms. | ![DualArmPickCube demo placeholder](media/DualArmPickCube.mp4) |
-| `DualArmPickBottle-v1` | `solutions/bimanual_pass_bottle.py` | Pick and pass a bottle between the two arms. | ![DualArmPickBottle demo placeholder](media/DualArmPassBottle.mp4) |
-| `DualArmPourPot-v1` | `solutions/bimanual_pour_pot.py` | Coordinate both arms to grasp, move, and pour with a pot. | ![DualArmPourPot demo placeholder](media/DualArmPourPot.mp4) |
-| `DualArmLiftPot-v1` | `solutions/bimanual_lift_pot.py` | Lift and transport a pot using both grippers. | ![DualArmLiftPot demo placeholder](media/DualArmLiftPot.mp4) |
-| `DualArmLiftTray-v1` | `solutions/bimanual_lift_tray.py` | Lift and transport a tray with synchronized two-arm grasps. | ![DualArmLiftTray demo placeholder](media/DualArmLiftTray.mp4) |
-| `DualArmDrawerOpen-v1` | `solutions/bimanual_drawer_open.py` | Grasp drawer handles and open the drawer with coordinated arm motion. | ![DualArmDrawerOpen demo placeholder](media/DualArmDrawerOpen.mp4) |
-| `DualArmDrawerPlace-v1` | `solutions/bimanual_drawer_place.py` | Open a drawer and place an object inside with two-arm coordination. | ![DualArmDrawerPlace demo placeholder](media/DualArmDrawerPlace.mp4) |
-| `DualArmPenCap-v1` | `solutions/bimanual_pen_cap.py` | Coordinate both arms to manipulate a pen and cap. | ![DualArmPenCap demo placeholder](media/DualArmPenCap.mp4) |
-| `DualArmPushBox-v1` | `solutions/bimanual_push_box.py` | Push a box using synchronized end-effector motion. | ![DualArmPushBox demo placeholder](media/DualArmPushBox.mp4) |
-| `DualArmStackCube-v1` | `solutions/bimanual_stack_cubes.py` | Stack cubes with coordinated bimanual pick-and-place. | ![DualArmStackCube demo placeholder](media/DualArmStackCube.mp4) |
-| `DualArmStack3Cube-v1` | `solutions/bimanual_stack3cubes.py` | Build a three-cube stack using both arms. | ![DualArmStack3Cube demo placeholder](media/DualArmStack3Cubes.mp4) |
-| `DualArmThreading-v1` | `solutions/bimanual_threading.py` | Coordinate both arms for a threading-style manipulation task. | ![DualArmThreading demo placeholder](media/DualArmThreading.mp4) |
+| `DualArmPickCube-v1` | `solutions/bimanual_pass_cube.py` | Pick and pass a cube between the two arms. | <video src="https://github.com/user-attachments/assets/b9d2fd23-298d-4be4-8317-f2c0ce918478" width="100%" controls></video>|
+| `DualArmPickBottle-v1` | `solutions/bimanual_pass_bottle.py` | Pick and pass a bottle between the two arms. | <video src="https://github.com/user-attachments/assets/71d735db-36c5-4460-95dd-ca4a042470c4" width="100%" controls></video>|
+| `DualArmPourPot-v1` | `solutions/bimanual_pour_pot.py` | Coordinate both arms to grasp, move, and pour with a pot. | <video src="https://github.com/user-attachments/assets/fb1280ec-f0af-4ea7-96a1-15c4d4a4f7b6" width="100%" controls></video>|
+| `DualArmLiftPot-v1` | `solutions/bimanual_lift_pot.py` | Lift and transport a pot using both grippers. | <video src="https://github.com/user-attachments/assets/c60c718b-20e1-4245-b01f-fd2d18265102" width="100%" controls></video>|
+| `DualArmLiftTray-v1` | `solutions/bimanual_lift_tray.py` | Lift and transport a tray with synchronized two-arm grasps. | <video src="https://github.com/user-attachments/assets/0451351b-f98a-4828-8ce5-7892d9f45cb7" width="100%" controls></video>|
+| `DualArmDrawerOpen-v1` | `solutions/bimanual_drawer_open.py` | Grasp drawer handles and open the drawer with coordinated arm motion. | <video src="https://github.com/user-attachments/assets/5e8edb10-1dc5-4c4f-ae25-e99e5578e0e6" width="100%" controls></video>|
+| `DualArmDrawerPlace-v1` | `solutions/bimanual_drawer_place.py` | Open a drawer and place an object inside with two-arm coordination. | <video src="https://github.com/user-attachments/assets/c5053dec-8501-4c9b-8ac7-e2fc938900e4" width="100%" controls></video>|
+| `DualArmPenCap-v1` | `solutions/bimanual_pen_cap.py` | Coordinate both arms to manipulate a pen and cap. | <video src="https://github.com/user-attachments/assets/6ae8abc2-b330-4c18-9262-168defd027a2" width="100%" controls></video>|
+| `DualArmPushBox-v1` | `solutions/bimanual_push_box.py` | Push a box using synchronized end-effector motion. | <video src="https://github.com/user-attachments/assets/0f896c0c-c632-46e6-9db6-6c490766e219" width="100%" controls></video>|
+| `DualArmStackCube-v1` | `solutions/bimanual_stack_cubes.py` | Stack cubes with coordinated bimanual pick-and-place. | <video src="https://github.com/user-attachments/assets/edd618ee-89b0-421c-988c-fc5fc0b02445" width="100%" controls></video>|
+| `DualArmStack3Cube-v1` | `solutions/bimanual_stack3cubes.py` | Build a three-cube stack using both arms. | <video src="https://github.com/user-attachments/assets/96dc03af-4bbb-4473-a871-6eb94f64f8d0" width="100%" controls></video>|
+| `DualArmThreading-v1` | `solutions/bimanual_threading.py` | Coordinate both arms for a threading-style manipulation task. | <video src="https://github.com/user-attachments/assets/70c5ed19-6004-43e9-907a-6d6bb1aa877c" width="100%" controls></video>|
 
 ## Implementation Notes
 
