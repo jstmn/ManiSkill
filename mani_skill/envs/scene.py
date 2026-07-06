@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from functools import cached_property
+import time
 from typing import Any, Mapping, Optional, Tuple, Union, cast
 
 import numpy as np
@@ -32,6 +33,19 @@ if SAPIEN_RENDER_SYSTEM == "3.1":
 
     GlobalShaderPack = None
     sapien.render.RenderCameraGroup = "oldtype"
+
+
+@dataclass
+class ViserEntityDisplay:
+    visual_mesh_handles: list[viser.SceneNodeHandle]
+    collision_mesh_handles: list[viser.SceneNodeHandle]
+    transparent_visual_mesh_handles: list[viser.SceneNodeHandle]
+    transparent_collision_mesh_handles: list[viser.SceneNodeHandle]
+    coordinate_frame_handle: viser.FrameHandle
+    show_collision_checkbox: Any
+    show_coordinate_frame_checkbox: Any
+    is_transparent: bool = False
+
 
 class ViserVisualizer:
     """
@@ -74,12 +88,19 @@ class ViserVisualizer:
             section_color=(200, 200, 200),
             plane_opacity=0.05,
         )
-        self.show_collision_checkbox = self.server.gui.add_checkbox(
-            "Show collision meshes", initial_value=False
+        self.server.scene.configure_fog(
+            near=1,
+            far=5.0,
+            color=(255, 255, 255),
         )
-        self.show_collision_checkbox.on_update(lambda _: self._update_mesh_visibility())
-        self.visual_mesh_handles: list[viser.SceneNodeHandle] = []
-        self.collision_mesh_handles: list[viser.SceneNodeHandle] = []
+        self.paused = False
+        self.pause_checkbox = self.server.gui.add_checkbox(
+            "Pause simulation", initial_value=False
+        )
+        self.pause_checkbox.on_update(
+            lambda _: setattr(self, "paused", self.pause_checkbox.value)
+        )
+        self.entity_displays: dict[str, ViserEntityDisplay] = {}
         self.articulation_link_frames: dict[str, dict[str, viser.FrameHandle]] = {}
         """maps articulation name (as registered in scene.articulations) to a map of link name -> the viser frame its visual shapes are parented under"""
         self.actor_frames: dict[str, viser.FrameHandle] = {}
@@ -90,17 +111,17 @@ class ViserVisualizer:
         pose directly off the live Articulation struct (no separate builder bookkeeping needed)."""
         link_frames: dict[str, viser.FrameHandle] = {}
         for link in articulation.links:
+            node_prefix = f"/{name}/{link.name}"
             pose = common.to_numpy(link.pose.raw_pose)[0]
             frame = self.server.scene.add_frame(
-                f"/{name}/{link.name}",
+                node_prefix,
                 show_axes=False,
                 position=tuple(pose[:3]),
                 wxyz=tuple(pose[3:7]),
             )
             link_frames[link.name] = frame
-            self._add_meshes(
-                f"/{name}/{link.name}", link._objs[0].entity, link._objs[0]
-            )
+            display = self._add_entity_display(f"{name}/{link.name}", node_prefix)
+            self._add_meshes(display, node_prefix, link._objs[0].entity, link._objs[0])
         self.articulation_link_frames[name] = link_frames
 
     def load_actor(self, name: str, actor: Actor) -> None:
@@ -119,18 +140,59 @@ class ViserVisualizer:
             (c for c in entity.components if isinstance(c, physx.PhysxRigidBaseComponent)),
             None,
         )
-        if component is not None:
-            self._add_meshes(f"/{name}", entity, component)
+        display = self._add_entity_display(name, f"/{name}")
+        self._add_meshes(display, f"/{name}", entity, component)
+
+    def _add_entity_display(
+        self, label: str, node_prefix: str
+    ) -> ViserEntityDisplay:
+        coordinate_frame = self.server.scene.add_frame(
+            f"{node_prefix}/coordinate_frame",
+            show_axes=True,
+            axes_length=0.1,
+            axes_radius=0.005,
+            position=(0.0, 0.0, 0.0),
+            wxyz=(1.0, 0.0, 0.0, 0.0),
+            visible=False,
+        )
+        with self.server.gui.add_folder(label, expand_by_default=True):
+            show_collision_checkbox = self.server.gui.add_checkbox(
+                "Collision mesh", initial_value=False
+            )
+            show_coordinate_frame_checkbox = self.server.gui.add_checkbox(
+                "Coordinate frame", initial_value=False
+            )
+
+        display = ViserEntityDisplay(
+            visual_mesh_handles=[],
+            collision_mesh_handles=[],
+            transparent_visual_mesh_handles=[],
+            transparent_collision_mesh_handles=[],
+            coordinate_frame_handle=coordinate_frame,
+            show_collision_checkbox=show_collision_checkbox,
+            show_coordinate_frame_checkbox=show_coordinate_frame_checkbox,
+        )
+        self.entity_displays[node_prefix] = display
+        coordinate_frame.on_click(lambda _: self._toggle_entity_transparency(display))
+        show_collision_checkbox.on_update(
+            lambda _: self._update_entity_mesh_visibility(display)
+        )
+        show_coordinate_frame_checkbox.on_update(
+            lambda _: self._update_entity_frame_visibility(display)
+        )
+        return display
 
     def _add_meshes(
         self,
+        display: ViserEntityDisplay,
         node_prefix: str,
         entity: sapien.Entity,
-        component: physx.PhysxRigidBaseComponent,
+        component: Optional[physx.PhysxRigidBaseComponent],
     ) -> None:
-        """Adds the (local-frame) visual and collision meshes of a physx rigid body to the viser scene, if
-        any (bodies with only a plane collision/visual shape, e.g. the ground, have none). Only one of the
-        two is shown at a time, toggled by self.show_collision_checkbox.
+        """Adds the (local-frame) visual and collision meshes of a Sapien entity to the viser scene, if
+        any (entities with only a plane collision/visual shape, e.g. the ground, have none). Only one of the
+        two is shown at a time when collision meshes are available, toggled by this entity's collision
+        checkbox.
 
         Visual meshes are added one per render shape/part (rather than merged into one mesh) so that each
         keeps its own material/texture (e.g. a table's wood texture) instead of being flattened to a single
@@ -141,27 +203,118 @@ class ViserVisualizer:
             merge_meshes,
         )
 
-        show_collision = self.show_collision_checkbox.value
+        show_collision = display.show_collision_checkbox.value
         for i, visual_mesh in enumerate(get_actor_visual_meshes(entity)):
-            handle = self.server.scene.add_mesh_trimesh(
-                f"{node_prefix}/visual/{i}", visual_mesh
+            handle, transparent_handle = self._add_clickable_mesh_pair(
+                display,
+                f"{node_prefix}/visual/{i}",
+                f"{node_prefix}/transparent_visual/{i}",
+                visual_mesh,
             )
             handle.visible = not show_collision
-            self.visual_mesh_handles.append(handle)
-        collision_mesh = merge_meshes(get_component_meshes(component))
+            transparent_handle.visible = False
+            display.visual_mesh_handles.append(handle)
+            display.transparent_visual_mesh_handles.append(transparent_handle)
+        collision_mesh = (
+            merge_meshes(get_component_meshes(component))
+            if component is not None
+            else None
+        )
         if collision_mesh is not None:
-            handle = self.server.scene.add_mesh_trimesh(
-                f"{node_prefix}/collision", collision_mesh
+            handle, transparent_handle = self._add_clickable_mesh_pair(
+                display,
+                f"{node_prefix}/collision",
+                f"{node_prefix}/transparent_collision",
+                collision_mesh,
             )
             handle.visible = show_collision
-            self.collision_mesh_handles.append(handle)
+            transparent_handle.visible = False
+            display.collision_mesh_handles.append(handle)
+            display.transparent_collision_mesh_handles.append(transparent_handle)
 
-    def _update_mesh_visibility(self) -> None:
-        show_collision = self.show_collision_checkbox.value
-        for handle in self.visual_mesh_handles:
-            handle.visible = not show_collision
-        for handle in self.collision_mesh_handles:
-            handle.visible = show_collision
+    def _add_clickable_mesh_pair(
+        self,
+        display: ViserEntityDisplay,
+        opaque_name: str,
+        transparent_name: str,
+        mesh,
+    ) -> tuple[viser.SceneNodeHandle, viser.SceneNodeHandle]:
+        opaque_handle = self.server.scene.add_mesh_trimesh(opaque_name, mesh)
+        transparent_handle = self.server.scene.add_mesh_trimesh(
+            transparent_name,
+            self._make_transparent_mesh(mesh, alpha=0.5),
+            visible=False,
+            cast_shadow=False,
+        )
+        opaque_handle.on_click(lambda _: self._toggle_entity_transparency(display))
+        transparent_handle.on_click(lambda _: self._toggle_entity_transparency(display))
+        return opaque_handle, transparent_handle
+
+    def _make_transparent_mesh(self, mesh, alpha: float):
+        transparent_mesh = mesh.copy()
+        alpha_uint8 = int(round(alpha * 255))
+        visual = transparent_mesh.visual
+
+        def with_alpha(colors):
+            colors = np.array(colors, copy=True)
+            uses_float_alpha = np.issubdtype(colors.dtype, np.floating)
+            opaque_alpha = 1.0 if uses_float_alpha else 255
+            transparent_alpha = alpha if uses_float_alpha else alpha_uint8
+            if colors.shape[-1] == 3:
+                colors = np.concatenate(
+                    [
+                        colors,
+                        np.full(
+                            (*colors.shape[:-1], 1),
+                            opaque_alpha,
+                            dtype=colors.dtype,
+                        ),
+                    ],
+                    axis=-1,
+                )
+            colors[..., 3] = transparent_alpha
+            return colors
+
+        if hasattr(visual, "face_colors") and len(visual.face_colors) > 0:
+            visual.face_colors = with_alpha(visual.face_colors)
+        if hasattr(visual, "vertex_colors") and len(visual.vertex_colors) > 0:
+            visual.vertex_colors = with_alpha(visual.vertex_colors)
+
+        material = getattr(visual, "material", None)
+        if material is not None:
+            material = material.copy()
+            main_color = with_alpha(material.main_color)
+            if hasattr(material, "diffuse"):
+                material.diffuse = main_color
+            if hasattr(material, "baseColorFactor"):
+                material.baseColorFactor = main_color
+                material.alphaMode = "BLEND"
+            visual.material = material
+
+        return transparent_mesh
+
+    def _update_entity_mesh_visibility(self, display: ViserEntityDisplay) -> None:
+        show_collision = (
+            display.show_collision_checkbox.value
+            and len(display.collision_mesh_handles) > 0
+        )
+        for handle in display.visual_mesh_handles:
+            handle.visible = not show_collision and not display.is_transparent
+        for handle in display.transparent_visual_mesh_handles:
+            handle.visible = not show_collision and display.is_transparent
+        for handle in display.collision_mesh_handles:
+            handle.visible = show_collision and not display.is_transparent
+        for handle in display.transparent_collision_mesh_handles:
+            handle.visible = show_collision and display.is_transparent
+
+    def _toggle_entity_transparency(self, display: ViserEntityDisplay) -> None:
+        display.is_transparent = not display.is_transparent
+        self._update_entity_mesh_visibility(display)
+
+    def _update_entity_frame_visibility(self, display: ViserEntityDisplay) -> None:
+        display.coordinate_frame_handle.visible = (
+            display.show_coordinate_frame_checkbox.value
+        )
 
     def sync_articulation_poses(self) -> None:
         """Synchronizes the poses of all displayed articulation links with their live simulation state, read
@@ -192,6 +345,12 @@ class ViserVisualizer:
         """Synchronizes all displayed articulations and actors with their live simulation state."""
         self.sync_articulation_poses()
         self.sync_actor_poses()
+
+    def wait_while_paused(self) -> None:
+        """Blocks simulation stepping while the Viser pause control is active."""
+        while self.paused:
+            self.sync()
+            time.sleep(0.01)
 
     def add_camera(
         self,
@@ -648,6 +807,8 @@ class ManiSkillScene:
     #     return self.get_cameras()
 
     def step(self):
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.wait_while_paused()
         self.px.step()
         if self.viser_visualizer is not None:
             self.viser_visualizer.sync()
