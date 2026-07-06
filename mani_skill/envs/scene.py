@@ -142,7 +142,7 @@ class ViserVisualizer:
         coordinate_frame = self.server.scene.add_frame(
             f"{node_prefix}/coordinate_frame",
             show_axes=True,
-            axes_length=0.1,
+            axes_length=0.25,
             axes_radius=0.005,
             position=(0.0, 0.0, 0.0),
             wxyz=(1.0, 0.0, 0.0, 0.0),
