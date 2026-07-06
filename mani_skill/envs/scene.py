@@ -88,11 +88,6 @@ class ViserVisualizer:
             section_color=(200, 200, 200),
             plane_opacity=0.05,
         )
-        self.server.scene.configure_fog(
-            near=1,
-            far=5.0,
-            color=(255, 255, 255),
-        )
         self.paused = False
         self.pause_checkbox = self.server.gui.add_checkbox(
             "Pause simulation", initial_value=False
