@@ -742,11 +742,18 @@ class BaseEnv(gym.Env):
         self._load_agent(options)
 
         self._load_scene(options)
-        if self.scene.can_render(): self._load_lighting(options)
+        # viser has a real (CPU) render device so entities build normal visual components (see
+        # parse_sim_and_render_backend), but does not support SAPIEN's own lighting pipeline, so that is
+        # skipped here even though self.scene.can_render() is True
+        if self.scene.can_render() and not self.scene.viser_enabled:
+            self._load_lighting(options)
 
         self.scene._setup(enable_gpu=self.gpu_sim_enabled)
         # for GPU sim, we have to setup sensors after we call setup gpu in order to enable loading mounted sensors as they depend on GPU buffer data
-        if self.scene.can_render(): self._setup_sensors(options)
+        # sensors/human-render cameras are still set up under viser (unlike lighting) so that obs_mode/render_mode
+        # relying on them still work; they just aren't shown in the viser 3D view itself
+        if self.scene.can_render():
+            self._setup_sensors(options)
         if self.render_mode == "human" and self._viewer is None:
             self._viewer = sapien_utils.create_viewer(self._viewer_camera_config)
         if self._viewer is not None:
