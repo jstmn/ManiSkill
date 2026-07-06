@@ -8,6 +8,7 @@ import sapien.physx as physx
 import sapien.render
 import torch
 from sapien.render import RenderCameraComponent
+import viser
 
 import mani_skill.render.utils as render_utils
 from mani_skill.envs.utils.system.backend import BackendInfo
@@ -29,6 +30,261 @@ if SAPIEN_RENDER_SYSTEM == "3.1":
 
     GlobalShaderPack = None
     sapien.render.RenderCameraGroup = "oldtype"  # type: ignore
+
+class ViserVisualizer:
+    """
+    Stub visualizer that renders a ManiSkillScene using viser (https://viser.studio/) instead of the
+    default SAPIEN based renderer/viewer. Methods here mirror the render related methods of
+    ManiSkillScene and are called instead of the default SAPIEN implementations whenever
+    ManiSkillScene.viser_enabled is True.
+    """
+
+    def __init__(self, scene: "ManiSkillScene"):
+        assert (
+            not scene.gpu_sim_enabled
+        ), "ViserVisualizer currently only supports the CPU simulation backend"
+        assert (
+            len(scene.sub_scenes) == 1
+        ), "ViserVisualizer currently only supports a single environment (num_envs == 1)"
+        self.scene = scene
+        # scene.backend is created once by BaseEnv.__init__ and reused across all reconfigures (each of
+        # which recreates the ManiSkillScene, and thus this ViserVisualizer, from scratch), so the server
+        # is stashed there and reused rather than spawning a new server (and orphaning the old one/its
+        # browser tab) on every reconfigure.
+        server = scene.backend.viser_server
+        if server is None:
+            server = viser.ViserServer()
+            scene.backend.viser_server = server
+        else:
+            server.scene.reset()
+            server.gui.reset()
+        self.server = server
+        self.server.scene.world_axes.visible = True
+        self.server.scene.world_axes.scale = 0.25
+        self.server.scene.add_grid(
+            "/xy_grid",
+            width=2.0,
+            height=2.0,
+            plane="xy",
+            cell_size=0.05,
+            section_size=0.25,
+            cell_color=(220, 220, 220),
+            section_color=(200, 200, 200),
+            plane_opacity=0.05,
+        )
+        self.show_collision_checkbox = self.server.gui.add_checkbox(
+            "Show collision meshes", initial_value=False
+        )
+        self.show_collision_checkbox.on_update(lambda _: self._update_mesh_visibility())
+        self.visual_mesh_handles: list[viser.SceneNodeHandle] = []
+        self.collision_mesh_handles: list[viser.SceneNodeHandle] = []
+        self.articulation_link_frames: dict[str, dict[str, viser.FrameHandle]] = {}
+        """maps articulation name (as registered in scene.articulations) to a map of link name -> the viser frame its visual shapes are parented under"""
+        self.actor_frames: dict[str, viser.FrameHandle] = {}
+        """maps actor name (as registered in scene.actors) to the viser frame its visual shapes are parented under"""
+
+    def load_articulation(self, name: str, articulation: Articulation) -> None:
+        """Displays an articulation in the viser scene, reading each link's visual/collision geometry and
+        pose directly off the live Articulation struct (no separate builder bookkeeping needed)."""
+        link_frames: dict[str, viser.FrameHandle] = {}
+        for link in articulation.links:
+            pose = common.to_numpy(link.pose.raw_pose)[0]
+            frame = self.server.scene.add_frame(
+                f"/{name}/{link.name}",
+                show_axes=False,
+                position=tuple(pose[:3]),
+                wxyz=tuple(pose[3:7]),
+            )
+            link_frames[link.name] = frame
+            self._add_meshes(
+                f"/{name}/{link.name}", link._objs[0].entity, link._objs[0]
+            )
+        self.articulation_link_frames[name] = link_frames
+
+    def load_actor(self, name: str, actor: Actor) -> None:
+        """Displays an actor in the viser scene, reading its visual/collision geometry and pose directly off
+        the live Actor struct (no separate builder bookkeeping needed)."""
+        pose = common.to_numpy(actor.pose.raw_pose)[0]
+        frame = self.server.scene.add_frame(
+            f"/{name}",
+            show_axes=False,
+            position=tuple(pose[:3]),
+            wxyz=tuple(pose[3:7]),
+        )
+        self.actor_frames[name] = frame
+        entity = actor._objs[0]
+        component = next(
+            (c for c in entity.components if isinstance(c, physx.PhysxRigidBaseComponent)),
+            None,
+        )
+        if component is not None:
+            self._add_meshes(f"/{name}", entity, component)
+
+    def _add_meshes(
+        self,
+        node_prefix: str,
+        entity: sapien.Entity,
+        component: physx.PhysxRigidBaseComponent,
+    ) -> None:
+        """Adds the (local-frame) visual and collision meshes of a physx rigid body to the viser scene, if
+        any (bodies with only a plane collision/visual shape, e.g. the ground, have none). Only one of the
+        two is shown at a time, toggled by self.show_collision_checkbox.
+
+        Visual meshes are added one per render shape/part (rather than merged into one mesh) so that each
+        keeps its own material/texture (e.g. a table's wood texture) instead of being flattened to a single
+        color."""
+        from mani_skill.utils.geometry.trimesh_utils import (
+            get_actor_visual_meshes,
+            get_component_meshes,
+            merge_meshes,
+        )
+
+        show_collision = self.show_collision_checkbox.value
+        for i, visual_mesh in enumerate(get_actor_visual_meshes(entity)):
+            handle = self.server.scene.add_mesh_trimesh(
+                f"{node_prefix}/visual/{i}", visual_mesh
+            )
+            handle.visible = not show_collision
+            self.visual_mesh_handles.append(handle)
+        collision_mesh = merge_meshes(get_component_meshes(component))
+        if collision_mesh is not None:
+            handle = self.server.scene.add_mesh_trimesh(
+                f"{node_prefix}/collision", collision_mesh
+            )
+            handle.visible = show_collision
+            self.collision_mesh_handles.append(handle)
+
+    def _update_mesh_visibility(self) -> None:
+        show_collision = self.show_collision_checkbox.value
+        for handle in self.visual_mesh_handles:
+            handle.visible = not show_collision
+        for handle in self.collision_mesh_handles:
+            handle.visible = show_collision
+
+    def sync_articulation_poses(self) -> None:
+        """Synchronizes the poses of all displayed articulation links with their live simulation state, read
+        directly off each Link's (already forward-kinematics-computed) pose."""
+        for name, link_frames in self.articulation_link_frames.items():
+            articulation = self.scene.articulations.get(name)
+            if articulation is None:
+                continue
+            for link in articulation.links:
+                frame = link_frames.get(link.name)
+                if frame is None:
+                    continue
+                pose = common.to_numpy(link.pose.raw_pose)[0]
+                frame.position = pose[:3]
+                frame.wxyz = pose[3:7]
+
+    def sync_actor_poses(self) -> None:
+        """Synchronizes the poses of all displayed actors with their live simulation state via ManiSkillScene.get_sim_state()."""
+        actor_states = self.scene.get_sim_state().get("actors", {})
+        for name, frame in self.actor_frames.items():
+            if name not in actor_states:
+                continue
+            state = common.to_numpy(actor_states[name])[0]
+            frame.position = state[:3]
+            frame.wxyz = state[3:7]
+
+    def sync(self) -> None:
+        """Synchronizes all displayed articulations and actors with their live simulation state."""
+        self.sync_articulation_poses()
+        self.sync_actor_poses()
+
+    def add_camera(
+        self,
+        name,
+        pose,
+        width,
+        height,
+        near,
+        far,
+        fovy: Union[float, list, None] = None,
+        intrinsic: Union[Array, None] = None,
+        mount: Union[Actor, Link, None] = None,
+    ) -> RenderCamera:
+        """Builds a real SAPIEN camera (sensors/human-render cameras still work normally under viser,
+        since viser has a real render device/system - see parse_sim_and_render_backend). The camera is not
+        shown in the viser 3D view itself."""
+        if SAPIEN_RENDER_SYSTEM == "3.1":
+            return self.scene._sapien_31_add_camera(
+                name, pose, width, height, near, far, fovy, intrinsic, mount
+            )
+        else:
+            return self.scene._sapien_add_camera(
+                name, pose, width, height, near, far, fovy, intrinsic, mount
+            )
+
+    def update_render(
+        self, update_sensors: bool = True, update_human_render_cameras: bool = True
+    ):
+        self.sync()
+
+    def add_point_light(
+        self,
+        position,
+        color,
+        shadow=False,
+        shadow_near=0.1,
+        shadow_far=10.0,
+        shadow_map_size=2048,
+        scene_idxs: Optional[list[int]] = None,
+    ):
+        raise NotImplementedError(
+            "ViserVisualizer.add_point_light is not implemented yet"
+        )
+
+    def add_directional_light(
+        self,
+        direction,
+        color,
+        shadow=False,
+        position=[0, 0, 0],
+        shadow_scale=10.0,
+        shadow_near=-10.0,
+        shadow_far=10.0,
+        shadow_map_size=2048,
+        scene_idxs: Optional[list[int]] = None,
+    ):
+        raise NotImplementedError(
+            "ViserVisualizer.add_directional_light is not implemented yet"
+        )
+
+    def add_spot_light(
+        self,
+        position,
+        direction,
+        inner_fov: float,
+        outer_fov: float,
+        color,
+        shadow=False,
+        shadow_near=0.1,
+        shadow_far=10.0,
+        shadow_map_size=2048,
+        scene_idxs: Optional[list[int]] = None,
+    ):
+        raise NotImplementedError(
+            "ViserVisualizer.add_spot_light is not implemented yet"
+        )
+
+    def add_area_light_for_ray_tracing(
+        self,
+        pose: sapien.Pose,
+        color,
+        half_width: float,
+        half_height: float,
+        scene_idxs=None,
+    ):
+        raise NotImplementedError(
+            "ViserVisualizer.add_area_light_for_ray_tracing is not implemented yet"
+        )
+
+    def get_human_render_camera_images(
+        self, camera_name: Optional[str] = None
+    ) -> dict[str, torch.Tensor]:
+        raise NotImplementedError(
+            "ViserVisualizer.get_human_render_camera_images is not implemented yet"
+        )
 
 
 @dataclass
@@ -73,6 +329,8 @@ class ManiSkillScene:
         self.debug_mode = debug_mode
         self.device = device
         self.backend = backend  # references the backend object stored in BaseEnv class
+        self.viser_enabled = self.backend.render_backend == "viser"
+        self.viser_visualizer = ViserVisualizer(self) if self.viser_enabled else None
 
         self.render_system_group: sapien.render.RenderSystemGroup = None
         self.camera_groups: dict[str, sapien.render.RenderCameraGroup] = dict()
@@ -208,6 +466,10 @@ class ManiSkillScene:
         mount: Union[Actor, Link, None] = None,
     ) -> RenderCamera:
         """Add's a (mounted) camera to the scene"""
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.add_camera(
+                name, pose, width, height, near, far, fovy, intrinsic, mount
+            )
         if SAPIEN_RENDER_SYSTEM == "3.1":
             return self._sapien_31_add_camera(
                 name, pose, width, height, near, far, fovy, intrinsic, mount
@@ -378,6 +640,8 @@ class ManiSkillScene:
 
     def step(self):
         self.px.step()
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.sync()
 
     def update_render(
         self, update_sensors: bool = True, update_human_render_cameras: bool = True
@@ -390,6 +654,11 @@ class ManiSkillScene:
             update_sensors (bool): Whether to update the sensors.
             update_human_render_cameras (bool): Whether to update the human render cameras.
         """
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.update_render(
+                update_sensors=update_sensors,
+                update_human_render_cameras=update_human_render_cameras,
+            )
         if SAPIEN_RENDER_SYSTEM == "3.1":
             self._sapien_31_update_render(
                 update_sensors=update_sensors,
@@ -585,6 +854,16 @@ class ManiSkillScene:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.add_point_light(
+                position,
+                color,
+                shadow=shadow,
+                shadow_near=shadow_near,
+                shadow_far=shadow_far,
+                shadow_map_size=shadow_map_size,
+                scene_idxs=scene_idxs,
+            )
         if scene_idxs is None:
             scene_idxs = list(range(len(self.sub_scenes)))
         for scene_idx in scene_idxs:
@@ -621,6 +900,18 @@ class ManiSkillScene:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.add_directional_light(
+                direction,
+                color,
+                shadow=shadow,
+                position=position,
+                shadow_scale=shadow_scale,
+                shadow_near=shadow_near,
+                shadow_far=shadow_far,
+                shadow_map_size=shadow_map_size,
+                scene_idxs=scene_idxs,
+            )
         if scene_idxs is None:
             scene_idxs = list(range(len(self.sub_scenes)))
         for scene_idx in scene_idxs:
@@ -666,6 +957,19 @@ class ManiSkillScene:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.add_spot_light(
+                position,
+                direction,
+                inner_fov,
+                outer_fov,
+                color,
+                shadow=shadow,
+                shadow_near=shadow_near,
+                shadow_far=shadow_far,
+                shadow_map_size=shadow_map_size,
+                scene_idxs=scene_idxs,
+            )
         if scene_idxs is None:
             scene_idxs = list(range(len(self.sub_scenes)))
         for scene_idx in scene_idxs:
@@ -702,6 +1006,10 @@ class ManiSkillScene:
         half_height: float,
         scene_idxs=None,
     ):
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.add_area_light_for_ray_tracing(
+                pose, color, half_width, half_height, scene_idxs=scene_idxs
+            )
         lighting_scenes = (
             self.sub_scenes
             if scene_idxs is None
@@ -925,6 +1233,12 @@ class ManiSkillScene:
             actor.set_pose(actor.initial_pose)
         for articulation in self.articulations.values():
             articulation.set_pose(articulation.initial_pose)
+        
+        if self.viser_visualizer is not None:
+            for name, articulation in self.articulations.items():
+                self.viser_visualizer.load_articulation(name, articulation)
+            for name, actor in self.actors.items():
+                self.viser_visualizer.load_actor(name, actor)
 
         if enable_gpu:
             self.px.cuda_rigid_body_data.torch()[:, 7:] = torch.zeros_like(
@@ -1137,6 +1451,8 @@ class ManiSkillScene:
     def get_human_render_camera_images(
         self, camera_name: str = None
     ) -> dict[str, torch.Tensor]:
+        if self.viser_visualizer is not None:
+            return self.viser_visualizer.get_human_render_camera_images(camera_name)
         image_data = dict()
         if self.gpu_sim_enabled:
             if self.parallel_in_single_scene:
