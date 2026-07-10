@@ -51,6 +51,9 @@ class ManiSkillScene:
     This wrapper also helps manage GPU states if GPU simulation is used
     """
 
+    _viser_server: Any = None
+    """Shared Viser server reused across reconfigures so the browser tab is not orphaned."""
+
     def __init__(
         self,
         sub_scenes: Optional[list[sapien.Scene]] = None,
@@ -58,6 +61,7 @@ class ManiSkillScene:
         device: Optional[Device] = None,
         parallel_in_single_scene: bool = False,
         backend: Optional[BackendInfo] = None,
+        visualizer_backend: str = "sapien",
     ):
         assert device is not None, "device argument is required"
         assert backend is not None, "backend argument is required"
@@ -78,8 +82,14 @@ class ManiSkillScene:
             device = torch.device(device)
         self.device = device
         self.backend = backend  # references the backend object stored in BaseEnv class
-        self.viser_enabled = self.backend.render_backend == "viser"
-        self.viser_visualizer = ViserVisualizer(self) if self.viser_enabled else None
+        self.visualizer_backend = visualizer_backend
+        self.viser_enabled = visualizer_backend == "viser"
+        self.viser_visualizer = None
+        if self.viser_enabled:
+            self.viser_visualizer = ViserVisualizer(
+                self, server=ManiSkillScene._viser_server
+            )
+            ManiSkillScene._viser_server = self.viser_visualizer.server
 
         self.camera_groups: dict[str, sapien.render.RenderCameraGroup] = dict()
         self.render_system_group: sapien.render.RenderSystemGroup = (
@@ -219,18 +229,19 @@ class ManiSkillScene:
         mount: Union[Actor, Link, None] = None,
     ) -> RenderCamera:
         """Add's a (mounted) camera to the scene"""
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.add_camera(
-                name, pose, width, height, near, far, fovy, intrinsic, mount
-            )
         if SAPIEN_RENDER_SYSTEM == "3.1":
-            return self._sapien_31_add_camera(
+            camera = self._sapien_31_add_camera(
                 name, pose, width, height, near, far, fovy, intrinsic, mount
             )
         else:
-            return self._sapien_add_camera(
+            camera = self._sapien_add_camera(
                 name, pose, width, height, near, far, fovy, intrinsic, mount
             )
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.add_camera(
+                name, pose, width, height, near, far, fovy, intrinsic, mount
+            )
+        return camera
 
     def _sapien_add_camera(
         self,
@@ -412,11 +423,6 @@ class ManiSkillScene:
             update_sensors (bool): Whether to update the sensors.
             update_human_render_cameras (bool): Whether to update the human render cameras.
         """
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.update_render(
-                update_sensors=update_sensors,
-                update_human_render_cameras=update_human_render_cameras,
-            )
         if SAPIEN_RENDER_SYSTEM == "3.1":
             self._sapien_31_update_render(
                 update_sensors=update_sensors,
@@ -424,6 +430,11 @@ class ManiSkillScene:
             )
         else:
             self._sapien_update_render(
+                update_sensors=update_sensors,
+                update_human_render_cameras=update_human_render_cameras,
+            )
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.update_render(
                 update_sensors=update_sensors,
                 update_human_render_cameras=update_human_render_cameras,
             )
@@ -620,16 +631,6 @@ class ManiSkillScene:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.add_point_light(
-                position,
-                color,
-                shadow=shadow,
-                shadow_near=shadow_near,
-                shadow_far=shadow_far,
-                shadow_map_size=shadow_map_size,
-                scene_idxs=scene_idxs,
-            )
         if scene_idxs is None:
             scene_idxs = list(range(len(self.sub_scenes)))
         for scene_idx in scene_idxs:
@@ -652,6 +653,16 @@ class ManiSkillScene:
                 light.pose = sapien.Pose(position)
 
             scene.add_entity(entity)
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.add_point_light(
+                position,
+                color,
+                shadow=shadow,
+                shadow_near=shadow_near,
+                shadow_far=shadow_far,
+                shadow_map_size=shadow_map_size,
+                scene_idxs=scene_idxs,
+            )
         return light
 
     def add_directional_light(
@@ -666,18 +677,6 @@ class ManiSkillScene:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.add_directional_light(
-                direction,
-                color,
-                shadow=shadow,
-                position=position,
-                shadow_scale=shadow_scale,
-                shadow_near=shadow_near,
-                shadow_far=shadow_far,
-                shadow_map_size=shadow_map_size,
-                scene_idxs=scene_idxs,
-            )
         if scene_idxs is None:
             scene_idxs = list(range(len(self.sub_scenes)))
         for scene_idx in scene_idxs:
@@ -711,6 +710,18 @@ class ManiSkillScene:
                 # and for parallel gui rendering setup accurate lighting does not matter as it is only
                 # for demo purposes
                 break
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.add_directional_light(
+                direction,
+                color,
+                shadow=shadow,
+                position=position,
+                shadow_scale=shadow_scale,
+                shadow_near=shadow_near,
+                shadow_far=shadow_far,
+                shadow_map_size=shadow_map_size,
+                scene_idxs=scene_idxs,
+            )
         return
 
     def add_spot_light(
@@ -726,19 +737,6 @@ class ManiSkillScene:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.add_spot_light(
-                position,
-                direction,
-                inner_fov,
-                outer_fov,
-                color,
-                shadow=shadow,
-                shadow_near=shadow_near,
-                shadow_far=shadow_far,
-                shadow_map_size=shadow_map_size,
-                scene_idxs=scene_idxs,
-            )
         if scene_idxs is None:
             scene_idxs = list(range(len(self.sub_scenes)))
         for scene_idx in scene_idxs:
@@ -768,6 +766,19 @@ class ManiSkillScene:
                 ),
             )
             scene.add_entity(entity)
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.add_spot_light(
+                position,
+                direction,
+                inner_fov,
+                outer_fov,
+                color,
+                shadow=shadow,
+                shadow_near=shadow_near,
+                shadow_far=shadow_far,
+                shadow_map_size=shadow_map_size,
+                scene_idxs=scene_idxs,
+            )
         return
 
     def add_area_light_for_ray_tracing(
@@ -778,10 +789,6 @@ class ManiSkillScene:
         half_height: float,
         scene_idxs=None,
     ):
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.add_area_light_for_ray_tracing(
-                pose, color, half_width, half_height, scene_idxs=scene_idxs
-            )
         lighting_scenes = (
             self.sub_scenes
             if scene_idxs is None
@@ -795,6 +802,10 @@ class ManiSkillScene:
             light.color = color
             light.pose = pose
             scene.add_entity(entity)
+        if self.viser_visualizer is not None:
+            self.viser_visualizer.add_area_light_for_ray_tracing(
+                pose, color, half_width, half_height, scene_idxs=scene_idxs
+            )
         return
 
     # def remove_light(self, light):
@@ -1261,8 +1272,6 @@ class ManiSkillScene:
     def get_human_render_camera_images(
         self, camera_name: Optional[str] = None
     ) -> dict[str, torch.Tensor]:
-        if self.viser_visualizer is not None:
-            return self.viser_visualizer.get_human_render_camera_images(camera_name)
         image_data = dict()
         if self.gpu_sim_enabled:
             if self.parallel_in_single_scene:
