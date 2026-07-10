@@ -173,6 +173,7 @@ def parse_args(args=None):
     parser.add_argument("--ignore-keys", nargs="*", default=[], help="keys to ignore when saving the trajectory")
     parser.add_argument("--included-cameras", nargs="*", default=[], help="cameras to include in the trajectory")
     parser.add_argument("--render-backend", type=str, default="gpu", help="Which render backend to use. Can be 'gpu', 'cpu', 'viser'")
+    parser.add_argument("--visualizer-backend", type=str, default="sapien", help="Which visualizer to use. Can be 'sapien' or 'viser'")
     return parser.parse_args()
 
 def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
@@ -193,7 +194,8 @@ def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
             perturbation_set=perturbation_set,
             _env_id=env_id,
             included_cameras=included_cameras,
-            render_backend=args.render_backend
+            render_backend=args.render_backend,
+            visualizer_backend=args.visualizer_backend
         )
     except TypeError as e:
         assert "got an unexpected keyword argument 'perturbation_set'" in str(e)
@@ -207,7 +209,8 @@ def _main(args, proc_id: int = 0, start_seed: int = 0) -> str:
             human_render_camera_configs=dict(shader_pack=args.shader),
             viewer_camera_configs=dict(shader_pack=args.shader),
             sim_backend=args.sim_backend,
-            render_backend=args.render_backend
+            render_backend=args.render_backend,
+            visualizer_backend=args.visualizer_backend
         )
 
     if env_id not in MP_SOLUTIONS:
@@ -399,8 +402,8 @@ def remove_keys_from_h5(h5_path: str, ignore_keys: list[str]) -> None:
 
 
 def main(args):
-    if args.render_backend == "viser":
-        assert args.num_procs == 1, "Viser render backend only supports single process"
+    if args.visualizer_backend == "viser":
+        assert args.num_procs == 1, "Viser visualizer backend only supports single process"
 
     if args.num_procs > 1 and args.num_procs < args.num_traj:
         if args.num_traj < args.num_procs:

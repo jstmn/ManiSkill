@@ -8,13 +8,10 @@ import torch
 import viser
 import time
 
-from mani_skill.envs.scene import ManiSkillScene
-from mani_skill.render import SAPIEN_RENDER_SYSTEM
 from mani_skill.utils import common
 from mani_skill.utils.structs.actor import Actor
 from mani_skill.utils.structs.articulation import Articulation
 from mani_skill.utils.structs.link import Link
-from mani_skill.utils.structs.render_camera import RenderCamera
 from mani_skill.utils.structs.types import Array
 
 
@@ -32,13 +29,13 @@ class ViserEntityDisplay:
 
 class ViserVisualizer:
     """
-    Stub visualizer that renders a ManiSkillScene using viser (https://viser.studio/) instead of the
-    default SAPIEN based renderer/viewer. Methods here mirror the render related methods of
-    ManiSkillScene and are called instead of the default SAPIEN implementations whenever
-    ManiSkillScene.viser_enabled is True.
+    Visualizer that mirrors a ManiSkillScene in viser (https://viser.studio/) alongside the
+    default SAPIEN renderer. ManiSkillScene always runs its Sapien path, then optionally calls
+    the matching methods here when ManiSkillScene.viser_visualizer is set
+    (i.e. visualizer_backend == "viser").
     """
 
-    def __init__(self, scene: "ManiSkillScene"):
+    def __init__(self, scene: "ManiSkillScene", server: Optional[Any] = None):
         assert (
             not scene.gpu_sim_enabled
         ), "ViserVisualizer currently only supports the CPU simulation backend"
@@ -46,14 +43,10 @@ class ViserVisualizer:
             len(scene.sub_scenes) == 1
         ), "ViserVisualizer currently only supports a single environment (num_envs == 1)"
         self.scene = scene
-        # scene.backend is created once by BaseEnv.__init__ and reused across all reconfigures (each of
-        # which recreates the ManiSkillScene, and thus this ViserVisualizer, from scratch), so the server
-        # is stashed there and reused rather than spawning a new server (and orphaning the old one/its
-        # browser tab) on every reconfigure.
-        server = scene.backend.viser_server
+        # ManiSkillScene._viser_server is reused across reconfigures (each of which recreates
+        # this ViserVisualizer) so we do not spawn a new server and orphan the browser tab.
         if server is None:
             server = viser.ViserServer()
-            scene.backend.viser_server = server
         else:
             server.scene.reset()
             server.gui.reset()
@@ -310,14 +303,14 @@ class ViserVisualizer:
                 frame.wxyz = pose[3:7]
 
     def sync_actor_poses(self) -> None:
-        """Synchronizes the poses of all displayed actors with their live simulation state via ManiSkillScene.get_sim_state()."""
-        actor_states = self.scene.get_sim_state().get("actors", {})
+        """Synchronizes the poses of all displayed actors with their live simulation state."""
         for name, frame in self.actor_frames.items():
-            if name not in actor_states:
+            actor = self.scene.actors.get(name)
+            if actor is None:
                 continue
-            state = common.to_numpy(actor_states[name])[0]
-            frame.position = state[:3]
-            frame.wxyz = state[3:7]
+            pose = common.to_numpy(actor.pose.raw_pose)[0]
+            frame.position = pose[:3]
+            frame.wxyz = pose[3:7]
 
     def sync(self) -> None:
         """Synchronizes all displayed articulations and actors with their live simulation state."""
@@ -341,18 +334,9 @@ class ViserVisualizer:
         fovy: Union[float, list, None] = None,
         intrinsic: Union[Array, None] = None,
         mount: Union[Actor, Link, None] = None,
-    ) -> RenderCamera:
-        """Builds a real SAPIEN camera (sensors/human-render cameras still work normally under viser,
-        since viser has a real render device/system - see parse_sim_and_render_backend). The camera is not
-        shown in the viser 3D view itself."""
-        if SAPIEN_RENDER_SYSTEM == "3.1":
-            return self.scene._sapien_31_add_camera(
-                name, pose, width, height, near, far, fovy, intrinsic, mount
-            )
-        else:
-            return self.scene._sapien_add_camera(
-                name, pose, width, height, near, far, fovy, intrinsic, mount
-            )
+    ) -> None:
+        """No-op: Sapien cameras are created by ManiSkillScene.add_camera before this is called."""
+        pass
 
     def update_render(
         self, update_sensors: bool = True, update_human_render_cameras: bool = True
@@ -369,9 +353,7 @@ class ViserVisualizer:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
-        raise NotImplementedError(
-            "ViserVisualizer.add_point_light is not implemented yet"
-        )
+        pass
 
     def add_directional_light(
         self,
@@ -385,9 +367,7 @@ class ViserVisualizer:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
-        raise NotImplementedError(
-            "ViserVisualizer.add_directional_light is not implemented yet"
-        )
+        pass
 
     def add_spot_light(
         self,
@@ -402,9 +382,7 @@ class ViserVisualizer:
         shadow_map_size=2048,
         scene_idxs: Optional[list[int]] = None,
     ):
-        raise NotImplementedError(
-            "ViserVisualizer.add_spot_light is not implemented yet"
-        )
+        pass
 
     def add_area_light_for_ray_tracing(
         self,
@@ -414,13 +392,5 @@ class ViserVisualizer:
         half_height: float,
         scene_idxs=None,
     ):
-        raise NotImplementedError(
-            "ViserVisualizer.add_area_light_for_ray_tracing is not implemented yet"
-        )
+        pass
 
-    def get_human_render_camera_images(
-        self, camera_name: Optional[str] = None
-    ) -> dict[str, torch.Tensor]:
-        raise NotImplementedError(
-            "ViserVisualizer.get_human_render_camera_images is not implemented yet"
-        )
