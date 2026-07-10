@@ -749,11 +749,7 @@ class BaseEnv(gym.Env):
         self._load_agent(options)
 
         self._load_scene(options)
-        # viser has a real (CPU) render device so entities build normal visual components (see
-        # parse_sim_and_render_backend), but does not support SAPIEN's own lighting pipeline, so that is
-        # skipped here even though self.scene.can_render() is True
-        if self.scene.can_render() and not self.scene.viser_enabled:
-            self._load_lighting(options)
+        if self.scene.can_render(): self._load_lighting(options)
 
         self.scene._setup(enable_gpu=self.gpu_sim_enabled)
         # for GPU sim, we have to setup sensors after we call setup gpu in order to enable loading mounted sensors as they depend on GPU buffer data
