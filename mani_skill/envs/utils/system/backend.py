@@ -2,12 +2,11 @@
 Utilities for determining the simulation backend and devices
 """
 import platform
-from dataclasses import dataclass, field
-from typing import Optional, Union
+from dataclasses import dataclass
+from typing import Union
 
 import sapien
 import torch
-import viser
 
 from mani_skill.utils.logging_utils import logger
 
@@ -24,8 +23,6 @@ class BackendInfo:
     """the device on which the renderer is running. If none then we disable rendering."""
     render_backend: str
     """the backend name of the renderer"""
-    viser_server: Optional[viser.ViserServer] = field(default=None, repr=False)
-    """the viser server used by ViserVisualizer when render_backend == "viser" """
 
 
 CPU_SIM_BACKENDS = set(["cpu", "physx_cpu"])
@@ -36,7 +33,6 @@ sim_backend_name_mapping = {
     "gpu": "physx_cuda",
     "physx_cpu": "physx_cpu",
     "physx_cuda": "physx_cuda",
-    "viser": "viser"
 }
 render_backend_name_mapping = {
     "cpu": "sapien_cpu",
@@ -44,7 +40,6 @@ render_backend_name_mapping = {
     "gpu": "sapien_cuda",
     "sapien_cpu": "sapien_cpu",
     "sapien_cuda": "sapien_cuda",
-    "viser": "viser"
 }
 
 
@@ -91,12 +86,6 @@ def parse_sim_and_render_backend(sim_backend: str, render_backend: str) -> Backe
             render_device = sapien.Device(device_str)
         elif render_backend == "none" or render_backend is None:
             render_device = None
-        elif render_backend == "viser":
-            # a real (CPU) render device is still needed so SAPIEN builds actual visual (render)
-            # components on actors/links (which ViserVisualizer reads mesh data off of) and sensors/
-            # human-render cameras still work normally. Only SAPIEN's own lighting setup is skipped for
-            # viser (see ManiSkillScene.viser_enabled checks in BaseEnv._reconfigure).
-            render_device = sapien.Device("cpu")
         else:
             # handle special cases such as for AMD gpus, render_backend must be defined as pci:... instead as cuda is not available.
             render_device = sapien.Device(render_backend)
