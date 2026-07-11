@@ -49,9 +49,6 @@ class ManiSkillScene:
     This wrapper also helps manage GPU states if GPU simulation is used
     """
 
-    _viser_server: Any = None
-    """Shared Viser server reused across reconfigures so the browser tab is not orphaned."""
-
     def __init__(
         self,
         sub_scenes: Optional[list[sapien.Scene]] = None,
@@ -82,12 +79,7 @@ class ManiSkillScene:
         self.backend = backend  # references the backend object stored in BaseEnv class
         self.visualizer_backend = visualizer_backend
         self.viser_enabled = visualizer_backend == "viser"
-        self.viser_visualizer = None
-        if self.viser_enabled:
-            self.viser_visualizer = ViserVisualizer(
-                self, server=ManiSkillScene._viser_server
-            )
-            ManiSkillScene._viser_server = self.viser_visualizer.server
+        self.viser_visualizer = ViserVisualizer(self) if self.viser_enabled else None
 
         self.render_system_group: sapien.render.RenderSystemGroup = None
         self.camera_groups: dict[str, sapien.render.RenderCameraGroup] = dict()
@@ -223,19 +215,18 @@ class ManiSkillScene:
         mount: Union[Actor, Link, None] = None,
     ) -> RenderCamera:
         """Add's a (mounted) camera to the scene"""
-        if SAPIEN_RENDER_SYSTEM == "3.1":
-            camera = self._sapien_31_add_camera(
-                name, pose, width, height, near, far, fovy, intrinsic, mount
-            )
-        else:
-            camera = self._sapien_add_camera(
-                name, pose, width, height, near, far, fovy, intrinsic, mount
-            )
         if self.viser_visualizer is not None:
             self.viser_visualizer.add_camera(
                 name, pose, width, height, near, far, fovy, intrinsic, mount
             )
-        return camera
+        if SAPIEN_RENDER_SYSTEM == "3.1":
+            return self._sapien_31_add_camera(
+                name, pose, width, height, near, far, fovy, intrinsic, mount
+            )
+        else:
+            return self._sapien_add_camera(
+                name, pose, width, height, near, far, fovy, intrinsic, mount
+            )
 
     def _sapien_add_camera(
         self,

@@ -71,12 +71,11 @@ def main(args: Args):
         env.scene.px.gpu_update_articulation_kinematics()
         env.scene._gpu_fetch_all()
     viewer = env.render()
+    viewer.paused = True
     viser_visualizer = env.scene.viser_visualizer
     if viser_visualizer is not None:
         viser_visualizer.paused = True
         viser_visualizer.pause_checkbox.value = True
-    elif hasattr(viewer, "paused"):
-        viewer.paused = True
     viewer = env.render()
     while True:
         if args.random_actions:
