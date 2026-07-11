@@ -58,6 +58,7 @@ class ManiSkillScene:
         parallel_in_single_scene: bool = False,
         backend: Optional[BackendInfo] = None,
         visualizer_backend: str = "sapien",
+        viser_server: Optional[Any] = None,
     ):
         if sub_scenes is None:
             sub_scenes = [sapien.Scene()]
@@ -79,7 +80,11 @@ class ManiSkillScene:
         self.backend = backend  # references the backend object stored in BaseEnv class
         self.visualizer_backend = visualizer_backend
         self.viser_enabled = visualizer_backend == "viser"
-        self.viser_visualizer = ViserVisualizer(self) if self.viser_enabled else None
+        self.viser_visualizer = (
+            ViserVisualizer(self, server=viser_server)
+            if self.viser_enabled
+            else None
+        )
 
         self.render_system_group: sapien.render.RenderSystemGroup = None
         self.camera_groups: dict[str, sapien.render.RenderCameraGroup] = dict()

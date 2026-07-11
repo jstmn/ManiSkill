@@ -249,6 +249,7 @@ class BaseEnv(gym.Env):
                 f"Invalid visualizer_backend: {visualizer_backend}. Must be one of ('sapien', 'viser')"
             )
         self.visualizer_backend = visualizer_backend
+        self._viser_server = None
         if sim_backend == "auto":
             if num_envs > 1:
                 sim_backend = "physx_cuda"
@@ -1260,7 +1261,10 @@ class BaseEnv(gym.Env):
             parallel_in_single_scene=self._parallel_in_single_scene,
             backend=self.backend,
             visualizer_backend=self.visualizer_backend,
+            viser_server=self._viser_server,
         )
+        if self.scene.viser_visualizer is not None:
+            self._viser_server = self.scene.viser_visualizer.server
         self.scene.px.timestep = 1.0 / self._sim_freq
         if not self.scene.can_render():
             if self.render_mode is not None:
@@ -1281,6 +1285,9 @@ class BaseEnv(gym.Env):
 
     def close(self):
         self._clear()
+        if self._viser_server is not None:
+            self._viser_server.stop()
+            self._viser_server = None
 
     def _close_viewer(self):
         if self._viewer is None:
