@@ -59,6 +59,7 @@ class ManiSkillScene:
         parallel_in_single_scene: bool = False,
         backend: Optional[BackendInfo] = None,
         visualizer_backend: str = "sapien",
+        viser_server: Optional[Any] = None,
     ):
         assert device is not None, "device argument is required"
         assert backend is not None, "backend argument is required"
@@ -81,7 +82,11 @@ class ManiSkillScene:
         self.backend = backend  # references the backend object stored in BaseEnv class
         self.visualizer_backend = visualizer_backend
         self.viser_enabled = visualizer_backend == "viser"
-        self.viser_visualizer = ViserVisualizer(self) if self.viser_enabled else None
+        self.viser_visualizer = (
+            ViserVisualizer(self, server=viser_server)
+            if self.viser_enabled
+            else None
+        )
 
         self.camera_groups: dict[str, sapien.render.RenderCameraGroup] = dict()
         self.render_system_group: sapien.render.RenderSystemGroup = (
