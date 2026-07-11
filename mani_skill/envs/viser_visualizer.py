@@ -76,6 +76,8 @@ class ViserVisualizer:
         """maps articulation name (as registered in scene.articulations) to a map of link name -> the viser frame its visual shapes are parented under"""
         self.actor_frames: dict[str, viser.FrameHandle] = {}
         """maps actor name (as registered in scene.actors) to the viser frame its visual shapes are parented under"""
+        self._debug_viz_counter = 0
+        """monotonically increasing counter used to name ad-hoc debug visualization nodes"""
 
     def load_articulation(self, name: str, articulation: Articulation) -> None:
         """Displays an articulation in the viser scene, reading each link's visual/collision geometry and
@@ -393,4 +395,159 @@ class ViserVisualizer:
         scene_idxs=None,
     ):
         pass
+
+    # -------------------------------------------------------------------------- #
+    # Debug visualization helpers (mirrors Sapien viewer debug draw APIs)
+    # -------------------------------------------------------------------------- #
+
+    def _next_debug_name(self, kind: str) -> str:
+        self._debug_viz_counter += 1
+        return f"/debug/{kind}/{self._debug_viz_counter}"
+
+    @staticmethod
+    def _to_rgb255(color) -> np.ndarray:
+        """Convert a float [0, 1] or uint8 RGB(A) color to uint8 RGB."""
+        color = np.asarray(color, dtype=np.float64).reshape(-1)
+        rgb = color[:3]
+        if rgb.max() <= 1.0:
+            rgb = rgb * 255.0
+        return np.clip(rgb, 0, 255).astype(np.uint8)
+
+    def add_bounding_box(
+        self,
+        pose: sapien.Pose,
+        half_size: np.ndarray,
+        color: np.ndarray,
+        line_width: float = 1.0,
+    ):
+        """Add a wireframe axis-aligned box in the box's local frame, transformed by ``pose``."""
+        corners = np.array(
+            [
+                [1, -1, -1],
+                [1, 1, -1],
+                [-1, 1, -1],
+                [-1, -1, -1],
+                [1, -1, 1],
+                [1, 1, 1],
+                [-1, 1, 1],
+                [-1, -1, 1],
+            ],
+            dtype=np.float32,
+        )
+        edges = [
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
+        ]
+        points = np.stack([corners[list(edge)] for edge in edges], axis=0)
+        half_size = np.asarray(half_size, dtype=np.float32).reshape(3)
+        return self.server.scene.add_line_segments(
+            self._next_debug_name("bbox"),
+            points=points,
+            colors=self._to_rgb255(color),
+            line_width=line_width,
+            scale=tuple(half_size),
+            position=tuple(np.asarray(pose.p, dtype=np.float32).reshape(3)),
+            wxyz=tuple(np.asarray(pose.q, dtype=np.float32).reshape(4)),
+        )
+
+    def update_bounding_box(self, box, pose: sapien.Pose, half_size: np.ndarray):
+        half_size = np.asarray(half_size, dtype=np.float32).reshape(3)
+        box.position = tuple(np.asarray(pose.p, dtype=np.float32).reshape(3))
+        box.wxyz = tuple(np.asarray(pose.q, dtype=np.float32).reshape(4))
+        box.scale = tuple(half_size)
+
+    def remove_bounding_box(self, box):
+        box.remove()
+
+    def draw_aabb(self, lower, upper, color, line_width: float = 1.0):
+        lower = np.asarray(lower, dtype=np.float32).reshape(3)
+        upper = np.asarray(upper, dtype=np.float32).reshape(3)
+        pose = sapien.Pose((lower + upper) / 2)
+        half_size = (upper - lower) / 2
+        return self.add_bounding_box(pose, half_size, color, line_width)
+
+    def update_aabb(self, aabb, lower, upper):
+        lower = np.asarray(lower, dtype=np.float32).reshape(3)
+        upper = np.asarray(upper, dtype=np.float32).reshape(3)
+        pose = sapien.Pose((lower + upper) / 2)
+        half_size = (upper - lower) / 2
+        self.update_bounding_box(aabb, pose, half_size)
+
+    def remove_aabb(self, aabb):
+        self.remove_bounding_box(aabb)
+
+    def add_3d_point_list(
+        self, points: np.ndarray, color: Optional[np.ndarray] = None
+    ):
+        """
+        Add a 3D point list to the visualizer.
+
+        Args:
+            points: Array of 3D points, shape [N, 3].
+            color: Optional color. None defaults to white. Can be:
+                - shape [3] or [4]: single RGB(A) color for all points
+                - shape [N, 3] or [N, 4]: per-point RGB(A) colors
+        """
+        points = np.asarray(points, dtype=np.float32)
+        assert points.ndim == 2 and points.shape[1] == 3, "points must be shape [N, 3]"
+        n_points = points.shape[0]
+
+        if color is None:
+            colors = np.full((n_points, 3), 255, dtype=np.uint8)
+        else:
+            color = np.asarray(color, dtype=np.float64)
+            if color.ndim == 1:
+                colors = np.tile(self._to_rgb255(color).reshape(1, 3), (n_points, 1))
+            elif color.ndim == 2:
+                assert (
+                    color.shape[0] == n_points
+                ), "color must have same number of points as points"
+                assert color.shape[1] in (
+                    3,
+                    4,
+                ), "color must be shape [N, 3] or [N, 4]"
+                if color.max() <= 1.0:
+                    color = color * 255.0
+                colors = np.clip(color[:, :3], 0, 255).astype(np.uint8)
+            else:
+                raise ValueError("color must be 1D or 2D array")
+
+        return self.server.scene.add_point_cloud(
+            self._next_debug_name("points"),
+            points=points,
+            colors=colors,
+            point_size=0.003,
+            point_shape="circle",
+            point_shading="gradient",
+        )
+
+    def remove_3d_point_list(self, pointset_obj):
+        """Remove a 3D point list from the visualizer."""
+        pointset_obj.remove()
+
+    def add_coordinate_frame(
+        self, pose: sapien.Pose, length: float = 0.1, radius: float = 0.02
+    ):
+        return self.server.scene.add_frame(
+            self._next_debug_name("frame"),
+            show_axes=True,
+            axes_length=length,
+            axes_radius=radius,
+            position=tuple(np.asarray(pose.p, dtype=np.float32).reshape(3)),
+            wxyz=tuple(np.asarray(pose.q, dtype=np.float32).reshape(4)),
+        )
+
+    def remove_coordinate_frame(self, node):
+        """Remove a coordinate frame from the visualizer."""
+        node.remove()
 
