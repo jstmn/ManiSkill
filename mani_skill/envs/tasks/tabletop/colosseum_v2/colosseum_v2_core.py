@@ -15,7 +15,7 @@ from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
-from mani_skill.envs.tasks.tabletop.colosseum_v2.perturbation_set import DistractionSet
+from mani_skill.envs.tasks.tabletop.colosseum_v2.perturbation_set import PerturbationSet
 from mani_skill.utils.building.actor_builder import ActorBuilder
 from mani_skill.utils.scene_builder.robocasa.fixtures.cabinet import OpenCabinet
 from mani_skill.utils.building.articulation_builder import ArticulationBuilder
@@ -369,12 +369,12 @@ class ColosseumV2Env(BaseEnv):
         max_n_distractor_objects = kwargs.pop("max_n_distractor_objects", 1000)
 
         # 
-        perturbation_set: DistractionSet | dict | None = kwargs.pop("perturbation_set", None)
+        perturbation_set: PerturbationSet | dict | None = kwargs.pop("perturbation_set", None)
         if perturbation_set is None:
-            self._ds = DistractionSet()
+            self._ds = PerturbationSet()
         elif isinstance(perturbation_set, dict):
-            self._ds = DistractionSet(**perturbation_set)
-        elif isinstance(perturbation_set, DistractionSet):
+            self._ds = PerturbationSet(**perturbation_set)
+        elif isinstance(perturbation_set, PerturbationSet):
             self._ds = perturbation_set
         else:
             raise ValueError(f"Invalid perturbation set type: {type(perturbation_set)}")

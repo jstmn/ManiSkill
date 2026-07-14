@@ -9,7 +9,7 @@ import tyro
 import mani_skill.envs
 from mani_skill.envs.sapien_env import BaseEnv
 from mani_skill.utils import gym_utils
-from mani_skill.envs.tasks.tabletop.colosseum_v2.perturbation_set import PERTURBATION_SETS, DistractionSet
+from mani_skill.envs.tasks.tabletop.colosseum_v2.perturbation_set import PERTURBATION_SETS, PerturbationSet
 from mani_skill.utils.wrappers import RecordEpisode
 
 
@@ -135,7 +135,7 @@ def main(args: Args):
     perturbation_set = None
     if args.perturbation_set is not None:
         perturbation_sets = [PERTURBATION_SETS[perturbation_set.upper()] for perturbation_set in args.perturbation_set]
-        perturbation_set = DistractionSet.merge(perturbation_sets)
+        perturbation_set = PerturbationSet.merge(perturbation_sets)
 
     env_kwargs = dict(
         obs_mode=args.obs_mode,

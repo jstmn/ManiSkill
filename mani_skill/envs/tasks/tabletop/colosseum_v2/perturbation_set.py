@@ -32,7 +32,7 @@ class ColorRange:
         )
 
 @dataclass
-class DistractionSet:
+class PerturbationSet:
     """
     Factor of Variation | Description
     ---------------------------------
@@ -70,8 +70,8 @@ class DistractionSet:
 
     unimplemented = {}
 
-    def get_partial_copy(self, keys: list[str]) -> "DistractionSet":
-        return DistractionSet(**{k: v for k, v in self.__dict__.items() if k in keys})
+    def get_partial_copy(self, keys: list[str]) -> "PerturbationSet":
+        return PerturbationSet(**{k: v for k, v in self.__dict__.items() if k in keys})
 
     def perturbation_is_enabled(self, perturbation: str) -> bool:
         if perturbation.endswith("_cfg"):
@@ -90,10 +90,10 @@ class DistractionSet:
         return len(disabled) == 0
 
     @staticmethod
-    def merge(perturbation_sets: list["DistractionSet"]) -> "DistractionSet":
+    def merge(perturbation_sets: list["PerturbationSet"]) -> "PerturbationSet":
 
         if len(perturbation_sets) == 0:
-            return DistractionSet()
+            return PerturbationSet()
 
         elif len(perturbation_sets) == 1:
             return perturbation_sets[0]
@@ -104,7 +104,7 @@ class DistractionSet:
             ds_2_enabled, _ = ds_2.which_enabled_str()
             for k in ds_1_enabled:
                 assert k not in ds_2_enabled, f"Variation {k} is enabled in both ds_1 and ds_2"
-            ds_merged = DistractionSet()
+            ds_merged = PerturbationSet()
             for k in ds_1_enabled:
                 setattr(ds_merged, f"{k}_cfg", getattr(ds_1, f"{k}_cfg"))
             for k in ds_2_enabled:
@@ -112,8 +112,8 @@ class DistractionSet:
             return ds_merged
 
         elif len(perturbation_sets) > 2:
-            merged_12 = DistractionSet.merge([perturbation_sets[0], perturbation_sets[1]])
-            return DistractionSet.merge([merged_12] + perturbation_sets[2:])
+            merged_12 = PerturbationSet.merge([perturbation_sets[0], perturbation_sets[1]])
+            return PerturbationSet.merge([merged_12] + perturbation_sets[2:])
 
     def MO_color_enabled(self) -> bool:
         return len(self.MO_color_cfg) > 0
@@ -236,7 +236,7 @@ class DistractionSet:
 
 # mani_skill/agents/base_agent.py
 # ^ can set the scale of the robot here
-all_distractor_set = DistractionSet(
+all_distractor_set = PerturbationSet(
     distractor_object_cfg={
         "n_distractors": 2,
         "x_lims": (-0.4, 0.4),
@@ -273,7 +273,7 @@ all_distractor_set = DistractionSet(
 )
 
 PERTURBATION_SETS = {
-    "none".upper(): DistractionSet(),
+    "none".upper(): PerturbationSet(),
     "all".upper(): all_distractor_set,
     ### Distractor object
     "distractor_object".upper(): all_distractor_set.get_partial_copy(["distractor_object_cfg"]),
