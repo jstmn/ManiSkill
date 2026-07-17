@@ -27,6 +27,16 @@ class ViserEntityDisplay:
     is_transparent: bool = False
 
 
+VISER_INITIAL_CAMERA_LOOK_AT = np.array([0.6, 0.0, 0.2], dtype=np.float64)
+VISER_INITIAL_CAMERA_DISTANCE_M = 1.0
+# Unit vector from the camera toward the look-at point: from -Y, pitched slightly downward.
+_VISER_INITIAL_CAMERA_VIEW_DIRECTION = np.array([0.0, 0.95, -0.32], dtype=np.float64)
+_VISER_INITIAL_CAMERA_VIEW_DIRECTION /= np.linalg.norm(_VISER_INITIAL_CAMERA_VIEW_DIRECTION)
+VISER_INITIAL_CAMERA_POSITION = (
+    VISER_INITIAL_CAMERA_LOOK_AT - VISER_INITIAL_CAMERA_DISTANCE_M * _VISER_INITIAL_CAMERA_VIEW_DIRECTION
+)
+
+
 class ViserVisualizer:
     """
     Visualizer that mirrors a ManiSkillScene in viser (https://viser.studio/) alongside the
@@ -51,6 +61,8 @@ class ViserVisualizer:
             server.scene.reset()
             server.gui.reset()
         self.server = server
+        self.server.gui.configure_theme(control_width="large")
+        self._configure_initial_camera()
         self.server.scene.world_axes.visible = True
         self.server.scene.world_axes.scale = 0.25
         self.server.scene.add_grid(
@@ -78,6 +90,13 @@ class ViserVisualizer:
         """maps actor name (as registered in scene.actors) to the viser frame its visual shapes are parented under"""
         self._debug_viz_counter = 0
         """monotonically increasing counter used to name ad-hoc debug visualization nodes"""
+
+    def _configure_initial_camera(self) -> None:
+        self.server.initial_camera.look_at = VISER_INITIAL_CAMERA_LOOK_AT
+        self.server.initial_camera.position = VISER_INITIAL_CAMERA_POSITION
+        for client in self.server.get_clients().values():
+            client.camera.look_at = VISER_INITIAL_CAMERA_LOOK_AT
+            client.camera.position = VISER_INITIAL_CAMERA_POSITION
 
     def load_articulation(self, name: str, articulation: Articulation) -> None:
         """Displays an articulation in the viser scene, reading each link's visual/collision geometry and
@@ -128,7 +147,7 @@ class ViserVisualizer:
             wxyz=(1.0, 0.0, 0.0, 0.0),
             visible=False,
         )
-        with self.server.gui.add_folder(label, expand_by_default=True):
+        with self.server.gui.add_folder(label, expand_by_default=False):
             show_collision_checkbox = self.server.gui.add_checkbox(
                 "Collision mesh", initial_value=False
             )
@@ -412,6 +431,53 @@ class ViserVisualizer:
         if rgb.max() <= 1.0:
             rgb = rgb * 255.0
         return np.clip(rgb, 0, 255).astype(np.uint8)
+
+    def add_line_segments(
+        self,
+        points: np.ndarray,
+        colors: np.ndarray,
+        line_width: float = 1.0,
+    ):
+        """Add a batched set of independent line segments.
+
+        Args:
+            points: Segment endpoints with shape [N, 2, 3].
+            colors: RGB(A) colors with shape [3/4], [N, 3/4], or [N, 2, 3/4].
+            line_width: Width of every segment.
+        """
+        points = np.asarray(points, dtype=np.float32)
+        assert points.ndim == 3 and points.shape[1:] == (2, 3), "points must have shape [N, 2, 3]"
+        assert points.shape[0] > 0, "points must contain at least one line segment"
+        assert line_width > 0, "line_width must be positive"
+
+        colors = np.asarray(colors, dtype=np.float64)
+        if colors.ndim == 1:
+            assert colors.shape[0] in (3, 4), "colors must have 3 or 4 channels"
+            colors = np.tile(colors[:3], (points.shape[0], 2, 1))
+        elif colors.ndim == 2:
+            assert colors.shape[0] == points.shape[0], "colors must match the number of line segments"
+            assert colors.shape[1] in (3, 4), "colors must have shape [N, 3] or [N, 4]"
+            colors = np.repeat(colors[:, None, :3], 2, axis=1)
+        elif colors.ndim == 3:
+            assert colors.shape[:2] == points.shape[:2], "colors must match the line segment endpoints"
+            assert colors.shape[2] in (3, 4), "colors must have shape [N, 2, 3] or [N, 2, 4]"
+            colors = colors[:, :, :3]
+        else:
+            raise ValueError("colors must have shape [3/4], [N, 3/4], or [N, 2, 3/4]")
+
+        if colors.max() <= 1.0:
+            colors = colors * 255.0
+        colors = np.clip(colors, 0, 255).astype(np.uint8)
+        return self.server.scene.add_line_segments(
+            self._next_debug_name("lines"),
+            points=points,
+            colors=colors,
+            line_width=line_width,
+        )
+
+    def remove_line_segments(self, line_segments) -> None:
+        """Remove line segments previously returned by ``add_line_segments``."""
+        line_segments.remove()
 
     def add_bounding_box(
         self,

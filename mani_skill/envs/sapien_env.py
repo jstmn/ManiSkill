@@ -868,7 +868,7 @@ class BaseEnv(gym.Env):
             to_delete = [x for x in list(self._sensors.keys()) if x not in self._included_cameras]
             for name in to_delete:
                 del self._sensors[name]
-                cprint(f"WARNING: Removing camera: {name}", "yellow")
+                #cprint(f"WARNING: Removing camera: {name}", "yellow")
             assert set(self._sensors.keys()) == set(self._included_cameras), f"{self._sensors.keys()} != {self._included_cameras}"
 
         self.scene.sensors = self._sensors
