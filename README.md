@@ -10,7 +10,6 @@ This repository contains the code for the ColosseumV2 project.
 conda create -n colosseum_v2 python=3.10
 conda activate colosseum_v2
 pip install torch
-
 pip install -e .
 
 # download the assets

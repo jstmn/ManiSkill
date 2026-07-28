@@ -21,7 +21,10 @@ from diffusers.optimization import get_scheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from gymnasium import spaces
-from mani_skill.utils.wrappers.flatten import FlattenRGBDObservationWrapper
+# from mani_skill.utils.wrappers.flatten import FlattenRGBDObservationWrapper
+from mani_skill.utils import common
+from mani_skill.envs.sapien_env import BaseEnv
+
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
 from torch.utils.data.sampler import BatchSampler, RandomSampler
@@ -35,6 +38,11 @@ from diffusion_policy.utils import (IterationBasedBatchSampler,
                                     build_state_obs_extractor, convert_obs,
                                     worker_init_fn)
 
+# Note(@jstmn): 'world__T__ee', 'world__T__root' were added to the observation space of the Panda agent as a 
+# convenience feature. We remove it here because it isn't included in the default ACT method. Additionally, it 
+# causes at torch shape mismatch error, because the configuration space is [batch x ndof], but these values are
+# [batch x 4 x 4]
+OBS_KEYS_TO_REMOVE = {"world__T__ee", "world__T__root"}
 
 @dataclass
 class Args:
@@ -111,6 +119,76 @@ class Args:
     demo_type: Optional[str] = None
 
 
+class FlattenRGBDObservationWrapper(gym.ObservationWrapper):
+    """
+    Flattens the rgbd mode observations into a dictionary with two keys, "rgbd" and "state"
+
+    Args:
+        rgb (bool): Whether to include rgb images in the observation
+        depth (bool): Whether to include depth images in the observation
+        state (bool): Whether to include state data in the observation
+        sep_depth (bool): Whether to separate depth and rgb images in the observation. Default is True.
+
+    Note that the returned observations will have a "rgb" or "depth" key depending on the rgb/depth bool flags, and will
+    always have a "state" key. If sep_depth is False, rgb and depth will be merged into a single "rgbd" key.
+    """
+
+    def __init__(self, env, rgb=True, depth=True, state=True, sep_depth=True) -> None:
+        self.base_env: BaseEnv = env.unwrapped
+        super().__init__(env)
+        self.include_rgb = rgb
+        self.include_depth = depth
+        self.sep_depth = sep_depth
+        self.include_state = state
+
+        # check if rgb/depth data exists in first camera's sensor data
+        first_cam = next(iter(self.base_env._init_raw_obs["sensor_data"].values()))
+        if "depth" not in first_cam:
+            self.include_depth = False
+        if "rgb" not in first_cam:
+            self.include_rgb = False
+        new_obs = self.observation(self.base_env._init_raw_obs)
+        self.base_env.update_obs_space(new_obs)
+
+    def observation(self, observation: dict):
+        sensor_data = observation.pop("sensor_data")
+        for key in OBS_KEYS_TO_REMOVE:
+            if key in observation["agent"]:
+                del observation["agent"][key]
+
+        del observation["sensor_param"]
+        rgb_images = []
+        depth_images = []
+        for cam_data in sensor_data.values():
+            if self.include_rgb:
+                rgb_images.append(cam_data["rgb"])
+            if self.include_depth:
+                depth_images.append(cam_data["depth"])
+
+        if len(rgb_images) > 0:
+            rgb_images = torch.concat(rgb_images, axis=-1)
+        if len(depth_images) > 0:
+            depth_images = torch.concat(depth_images, axis=-1)
+        # flatten the rest of the data which should just be state data
+        observation = common.flatten_state_dict(
+            observation, use_torch=True, device=self.base_env.device
+        )
+        ret = dict()
+        if self.include_state:
+            ret["state"] = observation
+        if self.include_rgb and not self.include_depth:
+            ret["rgb"] = rgb_images
+        elif self.include_rgb and self.include_depth:
+            if self.sep_depth:
+                ret["rgb"] = rgb_images
+                ret["depth"] = depth_images
+            else:
+                ret["rgbd"] = torch.concat([rgb_images, depth_images], axis=-1)
+        elif self.include_depth and not self.include_rgb:
+            ret["depth"] = depth_images
+        return ret
+
+
 def reorder_keys(d, ref_dict):
     out = dict()
     for k, v in ref_dict.items():
@@ -137,6 +215,8 @@ class SmallDemoDataset_DiffusionPolicy(Dataset):  # Load everything into memory
             _obs_traj_dict = reorder_keys(
                 obs_traj_dict, obs_space
             )  # key order in demo is different from key order in env obs
+            for key in OBS_KEYS_TO_REMOVE:
+                _obs_traj_dict["agent"].pop(key, None)
             _obs_traj_dict = obs_process_fn(_obs_traj_dict)
             if self.include_depth:
                 _obs_traj_dict["depth"] = torch.Tensor(
@@ -384,13 +464,15 @@ class Agent(nn.Module):
 def save_ckpt(run_name, tag):
     os.makedirs(f"runs/{run_name}/checkpoints", exist_ok=True)
     ema.copy_to(ema_agent.parameters())
+    ckpt_filepath = f"runs/{run_name}/checkpoints/{tag}.pt"
     torch.save(
         {
             "agent": agent.state_dict(),
             "ema_agent": ema_agent.state_dict(),
         },
-        f"runs/{run_name}/checkpoints/{tag}.pt",
+        ckpt_filepath,
     )
+    print(f"Saved checkpoint to {ckpt_filepath}")
 
 
 if __name__ == "__main__":
@@ -438,16 +520,6 @@ if __name__ == "__main__":
     assert args.max_episode_steps != None, "max_episode_steps must be specified as imitation learning algorithms task solve speed is dependent on the data you train on"
     env_kwargs["max_episode_steps"] = args.max_episode_steps
     other_kwargs = dict(obs_horizon=args.obs_horizon)
-    envs = make_eval_envs(
-        args.env_id,
-        args.num_eval_envs,
-        args.sim_backend,
-        env_kwargs,
-        other_kwargs,
-        video_dir=f"runs/{run_name}/videos" if args.capture_video else None,
-        wrappers=[FlattenRGBDObservationWrapper],
-    )
-
     if args.track:
         import wandb
         config = vars(args)
@@ -462,6 +534,17 @@ if __name__ == "__main__":
             group="DiffusionPolicy",
             tags=["diffusion_policy"],
         )
+
+    envs = make_eval_envs(
+        args.env_id,
+        args.num_eval_envs,
+        args.sim_backend,
+        env_kwargs,
+        other_kwargs,
+        video_dir=f"runs/{run_name}/videos" if args.capture_video else None,
+        wrappers=[FlattenRGBDObservationWrapper],
+    )
+
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
