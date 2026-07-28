@@ -18,7 +18,7 @@ def images_to_video(
     quality: Optional[float] = 5,
     verbose: bool = True,
     **kwargs,
-):
+) -> str:
     r"""Calls imageio to run FFMPEG on a list of images. For more info on
     parameters, see https://imageio.readthedocs.io/en/stable/format_ffmpeg.html
     Args:
@@ -49,6 +49,7 @@ def images_to_video(
     for im in images_iter:
         writer.append_data(im)
     writer.close()
+    return output_path
 
 
 def tile_images(images: list[Array], nrows=1) -> Array:
