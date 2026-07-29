@@ -2,7 +2,7 @@
 
 
 <p align="center">
-  <img alt="Colosseum V2 Tasks and Perturbations" src="https://jstmn.github.io/colosseum-v2-website/content/ColosseumV2_hero.jpg" width="100%">
+  <img alt="Colosseum V2 Tasks and Perturbations" src="figures/ColosseumV2_hero.jpg" width="100%">
 </p>
 
 <div align="center">
