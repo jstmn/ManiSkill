@@ -1,8 +1,20 @@
 # ColosseumV2
 
-This repository contains the code for the ColosseumV2 project.
 
-[![arxiv.org](https://img.shields.io/badge/cs.RO-%09arXiv%3A2111.08933-red)](https://arxiv.org/abs/2605.27759)
+<p align="center">
+  <img alt="Colosseum V2 Tasks and Perturbations" src="https://jstmn.github.io/colosseum-v2-website/content/ColosseumV2_hero.jpg" width="100%">
+</p>
+
+<div align="center">
+
+[Paper](https://arxiv.org/abs/2605.27759) | [Website](https://jstmn.github.io/colosseum-v2-website/) | [Lerobot Integration](https://github.com/Geeksongs/lerobot_colosseum_v2)
+
+</div>
+
+<!-- [![arxiv.org](https://img.shields.io/badge/cs.RO-arXiv%3A2605.27759-red)](https://arxiv.org/abs/2605.27759) -->
+<!-- This repository contains the code for the ColosseumV2 project. -->
+
+
 
 ## Installation
 
@@ -39,6 +51,28 @@ pip install -e examples/baselines/act_clip
 
 - Single-arm: `PlaceBookInShelf-v1`, `CookItemInPan-v1`, `PickSodaFromCabinet-v1`, `PickDishFromRack-v1`, `StackCubeColosseumV2-v1`, `PlaceDishInRack-v1`, `LiftPegUprightColosseumV2-v1`, `RotateArrow-v1`, `PegInsertionSideColosseumV2-v1`, `PlugChargerColosseumV2-v1`, `HammerNail-v1`, `ScoopBanana-v1`, `OpenDrawer-v1`, `OpenCabinet-v1`, `PlaceCubeInDrawer-v1`, `RaiseCube-v1`
 - Bimanual: `DualArmDrawerOpen-v1`, `DualArmPickCube-v1`, `DualArmPickBottle-v1`, `DualArmLiftPot-v1`, `DualArmLiftTray-v1`, `DualArmPushBox-v1`, `DualArmPourPot-v1`, `DualArmThreading-v1`, `DualArmPenCap-v1`, `DualArmDrawerPlace-v1`, `DualArmStackCube-v1`, `DualArmStack3Cube-v1`
+
+**Perturbations**:
+
+| Category | Perturbation | Description |
+|----------|--------------|-------------|
+| Vision | `MO_color` | Changes the color of the manipulated object. |
+| Vision | `MO_texture` | Changes the texture of the manipulated object. |
+| Action | `MO_size` | Scales the size of the manipulated object. |
+| Vision | `RO_color` | Changes the color of the receiving object, when applicable. |
+| Vision | `RO_texture` | Changes the texture of the receiving object, when applicable. |
+| Action | `RO_size` | Scales the size of the receiving object, when applicable. |
+| Vision | `table_color` | Changes the color of the tabletop. |
+| Vision | `table_texture` | Changes the texture of the tabletop. |
+| Vision | `light_color` | Changes the scene lighting color and intensity. |
+| Vision | `background_color` | Changes the color of the scene background. |
+| Vision | `background_texture` | Changes the texture of the scene walls. |
+| Vision | `camera_pose` | Perturbs the position and orientation of the camera. |
+| Vision | `distractor_object` | Spawns random distractor objects in the robot workspace. |
+| Language | `language` | Randomizes the language instruction used for the task. |
+| Action | `pose_randomization` | Expands the initial object pose randomization region. |
+| N/A | `none` | Disables all perturbations. |
+| Combined | `all` | Enables all available perturbations. |
 
 **Configure an environment with a perturbation** by passing a `PerturbationSet` (or a dict of `*_cfg` fields) via `perturbation_set` when creating the env. Note that a set of preconfigured perturbation sets are defined in `PERTURBATION_SETS` in `perturbation_set.py` - these are the exact perturbation sets used in the ColosseumV2 paper. Example code:
 
