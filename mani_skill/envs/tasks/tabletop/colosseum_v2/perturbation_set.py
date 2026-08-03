@@ -271,7 +271,7 @@ class PerturbationSet:
 # mani_skill/agents/base_agent.py
 # ^ can set the scale of the robot here
 _LANGUAGE_RANDOMIZATION_FILE = Path(__file__).parent / "language_randomizations.yaml"
-_SYSTEM_WORDS_FILE = Path("/usr/share/dict/words")
+_SYSTEM_WORDS_FILE = Path(__file__).parent / "random_words"
 assert _LANGUAGE_RANDOMIZATION_FILE.exists(), f"Language randomization file does not exist: {_LANGUAGE_RANDOMIZATION_FILE}"
 assert _SYSTEM_WORDS_FILE.exists(), f"System words file does not exist: {_SYSTEM_WORDS_FILE}"
 
