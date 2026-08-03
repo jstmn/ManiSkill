@@ -3,8 +3,7 @@ import numpy as np
 import sapien
 import torch
 import os
-import pathlib
-from mani_skill.agents.robots import Fetch, Panda, PandaWristCam
+from mani_skill.agents.robots import Fetch, PandaWristCam
 from mani_skill.envs.utils import randomization
 from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils import sapien_utils
@@ -12,8 +11,8 @@ from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.robocasa.fixtures.cabinet import OpenCabinet
 from mani_skill.utils.structs.pose import Pose
-from mani_skill import PACKAGE_ASSET_DIR
-from mani_skill.envs.tasks.tabletop.colosseum_v2.colosseum_v2_core import ColosseumV2Env, DisabledPerturbationFactors, PlacementRegion
+from mani_skill import PACKAGE_ASSET_DIR, ASSET_DIR
+from mani_skill.envs.tasks.tabletop.colosseum_v2.colosseum_v2_core import ColosseumV2Env, DisabledPerturbationFactors
 
 
 @register_env("PickSodaFromCabinet-v1", max_episode_steps=50)
@@ -181,7 +180,7 @@ class PickSodaFromCabinetEnv(ColosseumV2Env):
         """
         
         # Check for a key RoboCasa fixture file
-        robocasa_data_path = pathlib.Path.home() / ".maniskill" / "data" / "scene_datasets" / "robocasa_dataset"
+        robocasa_data_path = ASSET_DIR / "scene_datasets" / "robocasa_dataset"
         cabinet_fixture_path = robocasa_data_path / "assets" / "fixtures" / "cabinets" / "cabinet_open.xml"
         
         if not cabinet_fixture_path.exists():
