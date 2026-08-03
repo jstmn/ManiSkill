@@ -18,8 +18,8 @@ Key behavior:
 
 # ACT
 python scripts/colosseum_v2_paper/parse_logs.py \
-    --results-paths logs/yggdrasil/results_single_arm_act.csv logs/yggdrasil_2/results_single_arm_act.csv \
-    --output-path logs/parsed_ACT/single_arm
+    --results-paths logs/act_clip/single_arm.csv \
+    --output-path logs/act_clip/single_arm
 
 python scripts/colosseum_v2_paper/parse_logs.py \
     --results-paths logs/yggdrasil/results_bimanual_act.csv logs/yggdrasil_2/results_bimanual_act.csv \
@@ -44,6 +44,7 @@ import argparse
 import csv
 import sys
 from pathlib import Path
+import numpy as np
 
 CELL_COLOR_MAP = {
     "visual": "CFECFF",
@@ -144,7 +145,10 @@ PERTURBATION_NAMES = (
     "pose_randomization".lower(),
     "MO_size".lower(),
     "RO_size".lower(),
-    "language".lower(),
+    "language_paraphrase".lower(),
+    "language_other_task".lower(),
+    "language_random".lower(),
+    "language_none".lower(),
 )
 
 VISUAL_PERTURBATIONS = (
@@ -162,7 +166,10 @@ VISUAL_PERTURBATIONS = (
 )
 
 LANGUAGE_PERTURBATIONS = (
-    "language".lower(),
+    "language_paraphrase".lower(),
+    "language_other_task".lower(),
+    "language_random".lower(),
+    "language_none".lower(),
 )
 
 ACTION_PERTURBATIONS = (
@@ -315,7 +322,7 @@ def render_latex_table(
 
     # tabular spec: 1 left column + N right columns
     # tabular_spec = "l" + ("r" * len(PERTURBATION_NAMES))
-    tabular_spec = "lrr|rrrrrrrrrrr|rrr|r"
+    tabular_spec = "lrr|rrrrrrrrrrr|rrr|rrrr"
     lines: list[str] = []
     lines.append(r"\centering")
     lines.append(rf"\begin{{tabular}}{{{tabular_spec}}}")
@@ -350,7 +357,7 @@ def render_latex_table(
                 continue
             pct_change = (ds_sr - none_sr) / none_sr * 100
             pct_changes.append(pct_change)
-        ave_pct_change = np.mean(pct_changes)
+        ave_pct_change = float(np.mean(pct_changes)) if pct_changes else None
         cells.append(_format_percent(ave_pct_change, decimals=decimals))
     lines.append(" & ".join(cells) + r" \\")
 
@@ -365,13 +372,49 @@ def render_latex_table(
     return "\n".join(lines)
 
 
+def _cell_is_empty(x: object) -> bool:
+    if x is None:
+        return True
+    s = str(x).strip()
+    return s == "" or s.lower() == "nan"
+
+
 def save_to_csv(tasks: list[str], matrix: dict[tuple[str, str], float | None], path: str):
+    prev_tasks: set[str] = set()
+    prev_filled: set[tuple[str, str]] = set()
+    path_obj = Path(path)
+    had_previous = path_obj.exists()
+    if had_previous:
+        with path_obj.open("r", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                task = str(row.get("Task", "")).strip()
+                if not task:
+                    continue
+                prev_tasks.add(task)
+                for ds in PERTURBATION_NAMES:
+                    if ds in row and not _cell_is_empty(row[ds]):
+                        prev_filled.add((task, ds))
+
     with open(path, "w") as f:
         writer = csv.writer(f)
         writer.writerow(["Task"] + list(PERTURBATION_NAMES))
         for task in tasks:
             writer.writerow([str(task)] + [matrix.get((task, ds)) for ds in PERTURBATION_NAMES])
     print(f"Wrote CSV table to {path}")
+
+    if had_previous:
+        new_task_rows = [t for t in tasks if t not in prev_tasks]
+        new_filled = [
+            (task, ds)
+            for task in tasks
+            for ds in PERTURBATION_NAMES
+            if matrix.get((task, ds)) is not None and (task, ds) not in prev_filled
+        ]
+        print(f"New rows added: {len(new_task_rows)}")
+        if new_task_rows:
+            print(f"  tasks: {', '.join(new_task_rows)}")
+        print(f"Newly filled cells: {len(new_filled)}")
 
 
 def row_exists(rows: list[dict[str, str]], row: dict[str, str]) -> bool:

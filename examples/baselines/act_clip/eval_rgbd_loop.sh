@@ -46,10 +46,11 @@
 # Max Episode Length (Steps)          | 702
 # ============================================================
 
-LOGS_DIR="logs/yggdrasil_timing"
+LOGS_DIR="logs/act_clip"
 mkdir -p $LOGS_DIR
-
 NOW=$(date +%H:%M:%S)
+
+# python scripts/colosseum_v2_paper/remove_placeholder_rows.py $LOGS_DIR/single_arm__table.csv
 
 while true; do
     python examples/baselines/act_clip/eval_rgbd.py \
@@ -60,11 +61,11 @@ while true; do
         --is-multi-task True \
         --target-num-cams 3 \
         --num-eval-episodes 200 \
-        --num-eval-envs 34 \
+        --num-eval-envs 200 \
         --max-episode-steps-from-lookup \
         --internal-instruction \
         --perturbation-set "BLANK" \
-        --results-path $LOGS_DIR/results_single_arm__table.csv
+        --results-path $LOGS_DIR/single_arm.csv
 
     python examples/baselines/act_clip/eval_rgbd.py \
         --checkpoint-path checkpoints/hyeonho_mar17/hyeonho_mar17_act_clip_bimanual_4cameras_15689642_checkpoints_best_eval_success_once.pt \
@@ -78,7 +79,7 @@ while true; do
         --max-episode-steps-from-lookup \
         --internal-instruction \
         --perturbation-set "BLANK" \
-        --results-path $LOGS_DIR/results_bimanual_act.csv
+        --results-path $LOGS_DIR/bimanual.csv
 
     # =============================== VIDEO MODE ===============================
     # python examples/baselines/act_clip/eval_rgbd.py \

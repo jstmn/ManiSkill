@@ -52,24 +52,24 @@ class DETRVAE(nn.Module):
             self.backbones = nn.ModuleList(backbones)
             self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
             # 
-            print("\n=== Vision Parameter Counts ===")
-            for i, b in enumerate(self.backbones):
-                print(f"\nBackbone {i}:")
-                # b is Joiner(backbone, position_embedding)
-                joiner = b
-                backbone = b[0]              # Backbone (wraps ResNet)
-                pos_enc = b[1]              # positional encoding
-                resnet = backbone.body      # actual torchvision ResNet
-                print("  ResNet (body) params:", _count_params(resnet))
-                print("  ResNet (trainable):", _count_trainable(resnet))
-                print("  Positional encoding params:", _count_params(pos_enc))
-                print("  Full Joiner params:", _count_params(joiner))
+            # print("\n=== Vision Parameter Counts ===")
+            # for i, b in enumerate(self.backbones):
+            #     print(f"\nBackbone {i}:")
+            #     # b is Joiner(backbone, position_embedding)
+            #     joiner = b
+            #     backbone = b[0]              # Backbone (wraps ResNet)
+            #     pos_enc = b[1]              # positional encoding
+            #     resnet = backbone.body      # actual torchvision ResNet
+            #     print("  ResNet (body) params:", _count_params(resnet))
+            #     print("  ResNet (trainable):", _count_trainable(resnet))
+            #     print("  Positional encoding params:", _count_params(pos_enc))
+            #     print("  Full Joiner params:", _count_params(joiner))
 
-            print("\nInput projection conv params:", _count_params(self.input_proj))
+            # print("\nInput projection conv params:", _count_params(self.input_proj))
 
-            total_vision = sum(_count_params(b) for b in self.backbones) + _count_params(self.input_proj)
-            print("\nTOTAL vision params:", total_vision)
-            print("================================\n")
+            # total_vision = sum(_count_params(b) for b in self.backbones) + _count_params(self.input_proj)
+            # print("\nTOTAL vision params:", total_vision)
+            # print("================================\n")
         else:
             self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
             self.backbones = None

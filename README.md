@@ -154,9 +154,20 @@ ps_many_distractors = PerturbationSet(
 
 
 
+## Evaluate the multi task language conditioned ACT model from the paper
+```bash
+# First, download the checkpoints
+curl --create-dirs -o checkpoints/hyeonho_mar17/hyeonho_mar17_act_clip_single_arm_3cameras_15687623_checkpoints_best_eval_success_once.pt \
+  https://storage.googleapis.com/colosseum-v2-public/checkpoints/hyeonho_mar17/act_clip_single_arm_3cameras_15687623/best_eval_success_once.pt
+curl --create-dirs -o checkpoints/hyeonho_mar17/hyeonho_mar17_act_clip_bimanual_4cameras_15689642_checkpoints_best_eval_success_once.pt \
+  https://storage.googleapis.com/colosseum-v2-public/checkpoints/hyeonho_mar17/act_clip_bimanual_4cameras_15689642/best_eval_success_once.pt
+
+# Evaluate the checkpoints
+bash examples/baselines/act_clip/eval_rgbd_loop.sh
+```
+
 ## Train a multi task language conditioned ACT model
 
-https://storage.googleapis.com/bucket-colosseum-v2/trajectory__cv2-full__pd_ee_delta_pose__100.h5
 
 ``` bash
 

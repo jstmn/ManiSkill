@@ -78,7 +78,10 @@ PERTURBATION_SETS=(
     "background_color",
     "camera_pose",
     "pose_randomization",
-    "language"
+    "language_paraphrase",
+    "language_other_task",
+    "language_random",
+    "language_none",
 )
 
 PERTURBATION_SET_DISPLAY_NAMES = {
@@ -98,7 +101,10 @@ PERTURBATION_SET_DISPLAY_NAMES = {
     "background_color": "Background Color",
     "camera_pose": "Camera Pose",
     "pose_randomization": "Pose Randomization",
-    "language": "Language",
+    "language_paraphrase": "Language Paraphrase",
+    "language_other_task": "Language Other Task",
+    "language_random": "Language Random",
+    "language_none": "Language None",
 }
 
 VISION_PERTURBATION_SETS = [
@@ -115,7 +121,10 @@ VISION_PERTURBATION_SETS = [
     "camera_pose",
 ]
 LANGUAGE_PERTURBATION_SETS = [
-    "language"
+    "language_paraphrase",
+    "language_other_task",
+    "language_random",
+    "language_none",
 ]
 ACTION_PERTURBATION_SETS = [
     "MO_size",

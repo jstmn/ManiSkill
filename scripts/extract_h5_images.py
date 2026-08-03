@@ -3,19 +3,23 @@ import h5py
 import os
 import cv2
 from pathlib import Path
-from mani_skill.utils.visualization.misc import images_to_video
+from mani_skill.utils.visualization.misc import images_to_video, tile_images
 
 
 """ This script accepts a path to a h5 file. It extracts all the images and saves them to a directory of the same name.
 The output format is:
 
-<h5_file_name>/
+<h5_parent>/
     camera_name_1/
-        traj_1__000.png
-        traj_1__001.png
+        traj_1___000.png
+        traj_1___001.png
+        traj_1__video.mp4
     camera_name_2/
-        traj_1__000.png
-        traj_1__001.png
+        traj_1___000.png
+        traj_1___001.png
+        traj_1__video.mp4
+    combined/
+        traj_1__video.mp4   # cameras tiled side-by-side
     ...
 
 The h5 file format is:
@@ -64,9 +68,9 @@ The h5 file format is:
 
 # Example usage:
 python scripts/extract_h5_images.py \
-    --h5-file demos/RaiseCube-v1/motionplanning/trajectory_500x500.h5 \
+    --h5-file demos/PickSodaFromCabinet-v1/motionplanning/trajectory.h5 \
     --first-n-trajectories 3 \
-    --first-n-timesteps 65 \
+    --first-n-timesteps 10000 \
     --save-video
 """
 
@@ -75,10 +79,14 @@ def save_h5_images(h5_file_path: str, first_n_timesteps: int | None = None, firs
 
         # First, create the save directories
         save_dirs = {}
-        camera_names = f['traj_0']['obs']['sensor_data'].keys()
+        output_root = Path(h5_file_path.replace(".h5", "")).parent
+        camera_names = sorted(f['traj_0']['obs']['sensor_data'].keys())
         for camera_name in camera_names:
-            save_dirs[camera_name] = Path(h5_file_path.replace(".h5", "")).parent / camera_name
+            save_dirs[camera_name] = output_root / camera_name
             save_dirs[camera_name].mkdir(parents=True, exist_ok=True)
+        if save_video:
+            combined_dir = output_root / "combined"
+            combined_dir.mkdir(parents=True, exist_ok=True)
 
         # Then, save the images
         for traj_key in f.keys():
@@ -97,7 +105,7 @@ def save_h5_images(h5_file_path: str, first_n_timesteps: int | None = None, firs
             assert 'obs' in traj_group
             assert 'sensor_data' in traj_group['obs']
             sensor_data = traj_group['obs']['sensor_data']
-            for camera_name in sensor_data.keys():
+            for camera_name in camera_names:
                 rgbs = sensor_data[camera_name]['rgb']
                 for i, rgb in enumerate(rgbs):
                     image_path = save_dirs[camera_name] / f"{prefix}{traj_key}___{i:03d}.png"
@@ -121,6 +129,20 @@ def save_h5_images(h5_file_path: str, first_n_timesteps: int | None = None, firs
                         quality=5,
                         verbose=True,
                     )
+
+                n_frames = min(len(frames) for frames in video_images.values())
+                combined_images = [
+                    tile_images([video_images[camera_name][i] for camera_name in camera_names], nrows=1)
+                    for i in range(n_frames)
+                ]
+                images_to_video(
+                    images=combined_images,
+                    output_dir=str(combined_dir),
+                    video_name=f"{prefix}{traj_key}__video",
+                    fps=30,
+                    quality=5,
+                    verbose=True,
+                )
 
 
 if __name__ == "__main__":

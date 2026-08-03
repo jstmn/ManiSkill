@@ -337,7 +337,10 @@ if __name__ == "__main__":
         eval_langs = [TASK_TEXT_MAP[eid]] * args.num_eval_envs
     try:
         eval_langs = envs.unwrapped.update_language_instructions(eval_langs)
-        cprint(f"Using updated language instruction: {eval_langs}", "yellow")
+        if len(eval_langs) > 10:
+            cprint(f"Using updated language instruction: {eval_langs[:10]}... (truncated)", "yellow")
+        else:
+            cprint(f"Using updated language instruction: {eval_langs}", "yellow")
     except AttributeError as e:
         cprint(f"Environment doesn't support perturbed language instructions: {e}", "yellow")
     except Exception as e:
