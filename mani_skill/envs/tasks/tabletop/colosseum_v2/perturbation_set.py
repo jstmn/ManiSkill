@@ -48,6 +48,10 @@ class PerturbationSet:
     Distractor object   | Spawns a random object in the workspace of the robot.
     Background texture  | Modifies the textures applied to the walls of the scene.
     Camera pose         | Randomly perturbs the pose of a camera.
+    Language paraphrase | Replaces the instruction with a paraphrase of the same task.
+    Language other task | Replaces the instruction with a paraphrase from a different task.
+    Language random     | Replaces the instruction with N random English words.
+    Language none       | Replaces the instruction with an empty string.
 
     from https://robot-colosseum.readthedocs.io/en/latest/overview.html
     """
@@ -65,7 +69,10 @@ class PerturbationSet:
     background_color_cfg: dict = field(default_factory=dict)
     camera_pose_cfg: dict = field(default_factory=dict)
     # MO_mass_cfg: dict = field(default_factory=dict)
-    language_cfg: dict = field(default_factory=dict)
+    language_paraphrase_cfg: dict = field(default_factory=dict)
+    language_other_task_cfg: dict = field(default_factory=dict)
+    language_random_cfg: dict = field(default_factory=dict)
+    language_none_cfg: dict = field(default_factory=dict)
     pose_randomization_cfg: dict = field(default_factory=dict)
 
     unimplemented = {}
@@ -159,9 +166,33 @@ class PerturbationSet:
     #     assert not enabled, "MO mass is disabled"
     #     return False
 
-    def language_enabled(self) -> bool:
-        return len(self.language_cfg) > 0
-    
+    def language_paraphrase_enabled(self) -> bool:
+        return len(self.language_paraphrase_cfg) > 0
+
+    def language_other_task_enabled(self) -> bool:
+        return len(self.language_other_task_cfg) > 0
+
+    def language_random_enabled(self) -> bool:
+        return len(self.language_random_cfg) > 0
+
+    def language_none_enabled(self) -> bool:
+        return len(self.language_none_cfg) > 0
+
+    def enabled_language_modes(self) -> list[str]:
+        return [
+            name
+            for name, enabled in [
+                ("language_paraphrase", self.language_paraphrase_enabled()),
+                ("language_other_task", self.language_other_task_enabled()),
+                ("language_random", self.language_random_enabled()),
+                ("language_none", self.language_none_enabled()),
+            ]
+            if enabled
+        ]
+
+    def has_language_perturbation(self) -> bool:
+        return len(self.enabled_language_modes()) > 0
+
     def pose_randomization_enabled(self) -> bool:
         return len(self.pose_randomization_cfg) > 0
 
@@ -206,7 +237,10 @@ class PerturbationSet:
             "background_color_cfg",
             "camera_pose_cfg",
             # "MO_mass_cfg",
-            "language_cfg",
+            "language_paraphrase_cfg",
+            "language_other_task_cfg",
+            "language_random_cfg",
+            "language_none_cfg",
             "pose_randomization_cfg",
         ]:
             self._internal[key] = {}
@@ -236,15 +270,29 @@ class PerturbationSet:
 
 # mani_skill/agents/base_agent.py
 # ^ can set the scale of the robot here
+_LANGUAGE_RANDOMIZATION_FILE = Path(__file__).parent / "language_randomizations.yaml"
+_SYSTEM_WORDS_FILE = Path("/usr/share/dict/words")
+assert _LANGUAGE_RANDOMIZATION_FILE.exists(), f"Language randomization file does not exist: {_LANGUAGE_RANDOMIZATION_FILE}"
+assert _SYSTEM_WORDS_FILE.exists(), f"System words file does not exist: {_SYSTEM_WORDS_FILE}"
+
 all_distractor_set = PerturbationSet(
     distractor_object_cfg={
         "n_distractors": 2,
         "x_lims": (-0.4, 0.4),
         "y_lims": (-0.4, 0.4),
     },
-    language_cfg = {
-        "randomization": True, 
-        "randomization_file": Path(__file__).parent / "language_randomizations.yaml",
+    language_paraphrase_cfg={
+        "randomization_file": _LANGUAGE_RANDOMIZATION_FILE,
+    },
+    language_other_task_cfg={
+        "randomization_file": _LANGUAGE_RANDOMIZATION_FILE,
+    },
+    language_random_cfg={
+        "num_words": 5,
+        "words_file": _SYSTEM_WORDS_FILE,
+    },
+    language_none_cfg={
+        "enabled": True,
     },
     MO_color_cfg ={"color_range": ColorRange(low=(0, 0, 0, 1), high=(1, 1, 1, 1)),},
     MO_texture_cfg = {"textures_directory": os.path.join(PACKAGE_ASSET_DIR, "textures"),},
@@ -297,8 +345,11 @@ PERTURBATION_SETS = {
     ### Background
     "background_texture".upper(): all_distractor_set.get_partial_copy(["background_texture_cfg"]),
     "background_color".upper(): all_distractor_set.get_partial_copy(["background_color_cfg"]),
-    ### Language
-    "language".upper(): all_distractor_set.get_partial_copy(["language_cfg"]),
+    ### Language (ALL enables all four; update_language_instructions samples among enabled modes)
+    "language_paraphrase".upper(): all_distractor_set.get_partial_copy(["language_paraphrase_cfg"]),
+    "language_other_task".upper(): all_distractor_set.get_partial_copy(["language_other_task_cfg"]),
+    "language_random".upper(): all_distractor_set.get_partial_copy(["language_random_cfg"]),
+    "language_none".upper(): all_distractor_set.get_partial_copy(["language_none_cfg"]),
     ### Pose randomization
     "pose_randomization".upper(): all_distractor_set.get_partial_copy(["pose_randomization_cfg"]),
 }

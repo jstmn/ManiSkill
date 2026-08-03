@@ -2,6 +2,7 @@ from typing import Callable
 import os
 import random
 from dataclasses import dataclass
+from pathlib import Path
 
 from termcolor import cprint
 from sapien.physx import PhysxMaterial
@@ -408,8 +409,18 @@ class ColosseumV2Env(BaseEnv):
         self._table: Actor | None = None
 
         self._language_randomizations: dict[str, list[str]] = {}
-        if self._ds.language_enabled():
-            self._language_randomizations = load(open(self._ds.language_cfg["randomization_file"]), Loader=SafeLoader)
+        self._english_words: list[str] = []
+        if self._ds.language_paraphrase_enabled() or self._ds.language_other_task_enabled():
+            cfg = (
+                self._ds.language_paraphrase_cfg
+                if self._ds.language_paraphrase_enabled()
+                else self._ds.language_other_task_cfg
+            )
+            self._language_randomizations = load(open(cfg["randomization_file"]), Loader=SafeLoader)
+        if self._ds.language_random_enabled():
+            self._english_words = self._load_english_words(
+                Path(self._ds.language_random_cfg["words_file"])
+            )
 
         self._robot_uids = robot_uids
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -911,14 +922,48 @@ class ColosseumV2Env(BaseEnv):
             )
         return dict(tcp_pose=self.agent.tcp_pose.raw_pose)
 
+    @staticmethod
+    def _load_english_words(words_path: Path) -> list[str]:
+        """Load alphabetic English words for language_random perturbation.
+
+        Prefers a system dictionary (e.g. /usr/share/dict/words). Falls back to
+        unique tokens harvested from the paraphrase YAML if needed.
+        """
+        assert words_path.exists(), f"words_path does not exist: {words_path}"
+        words = [
+            w
+            for line in words_path.read_text().splitlines()
+            if (w := line.strip().lower()).isalpha() and 3 <= len(w) <= 12
+        ]
+        return words
+
+    def _sample_language_instruction(self, mode: str) -> str:
+        if mode == "language_paraphrase":
+            return random.choice(self._language_randomizations[self._env_id])
+        if mode == "language_other_task":
+            other_tasks = [task for task in self._language_randomizations if task != self._env_id]
+            assert other_tasks, "language_other_task requires at least one other task in the randomization file"
+            return random.choice(self._language_randomizations[random.choice(other_tasks)])
+        if mode == "language_random":
+            num_words = self._ds.language_random_cfg.get("num_words", 5)
+            assert len(self._english_words) >= num_words, (
+                f"Need at least {num_words} English words, got {len(self._english_words)}"
+            )
+            return " ".join(random.sample(self._english_words, num_words))
+        if mode == "language_none":
+            return ""
+        raise ValueError(f"Unknown language mode: {mode}")
+
     def update_language_instructions(self, language_instructions: list[str] | None) -> list[str] | None:
         if language_instructions is None:
             return None
-        if self._ds.language_enabled():
-            return [
-                random.choice(self._language_randomizations[self._env_id]) for _ in range(len(language_instructions))
-            ]
-        return language_instructions
+        enabled_modes = self._ds.enabled_language_modes()
+        if not enabled_modes:
+            return language_instructions
+        return [
+            self._sample_language_instruction(random.choice(enabled_modes))
+            for _ in language_instructions
+        ]
 
     def update_placement_region(self, region: PlacementRegion):
         """
