@@ -1,4 +1,5 @@
 import argparse
+from termcolor import cprint
 import hashlib
 import os
 import os.path as osp
@@ -228,7 +229,11 @@ def main(args):
         kwargs["non_interactive"] = args.non_interactive
         if args.output_dir is not None:
             kwargs["output_dir"] = args.output_dir
-        output_path = download(assets.DATA_SOURCES[uid], **kwargs)
+        try:
+            output_path = download(assets.DATA_SOURCES[uid], **kwargs)
+        except Exception as e:
+            cprint(f"Error downloading {uid}: {e}", "red", attrs=["bold"])
+            continue
 
         if output_path is not None and verbose:
             print("=" * 80)
