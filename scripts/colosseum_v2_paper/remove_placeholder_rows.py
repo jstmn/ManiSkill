@@ -8,6 +8,9 @@ A row is treated as a placeholder if either:
   - message == "placeholder" (case-insensitive), or
   - num_sucessful_episodes < 0
 
+Rows with message == "variation_factor_disabled" are kept even when
+num_sucessful_episodes < 0 (those are completed skips, not placeholders).
+
 ### Example usage:
 python scripts/colosseum_v2_paper/remove_placeholder_rows.py logs/act_clip/single_arm.csv
 """
@@ -30,6 +33,9 @@ def _safe_int(x: object) -> int | None:
 
 def is_placeholder_row(row: dict[str, str]) -> bool:
     message = str(row.get("message", "")).strip().lower()
+    # Completed skips (variation not applicable for this env) — keep them.
+    if message == "variation_factor_disabled":
+        return False
     if message == "placeholder":
         return True
     n_success = _safe_int(row.get("num_sucessful_episodes"))
