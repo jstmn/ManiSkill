@@ -170,25 +170,70 @@ def get_now_str():
     return datetime.now().strftime("%Y:%m:%d__%H:%M:%S")
 
 
-def update_args_from_results(args: Args):
+RESULTS_CSV_COLUMNS = [
+    "checkpoint_path","pc_hostname","now","t_final","duration_sec","perturbation_set","env_id","control_mode","include_depth","num_eval_episodes","max_episode_steps","message","num_sucessful_episodes","success_percent"
+]
+
+
+def get_tasks_and_perturbations(args: Args) -> tuple[list[str], list[str]]:
+    """Return the task list and perturbation list used for sweep scheduling."""
     assert args.results_path is not None
-    expected_columns = [
-        "checkpoint_path","pc_hostname","now","t_final","duration_sec","perturbation_set","env_id","control_mode","include_depth","num_eval_episodes","max_episode_steps","message","num_sucessful_episodes","success_percent"
-    ]
-    if not Path(args.results_path).exists():
-        results_df = DataFrame(columns=expected_columns)
+    if "bimanual" in args.results_path:
+        tasks = list(ALL_COLOSSEUM_V2_BIMANUAL_TASKS)
+    elif ("single_arm" in args.results_path) or ("singlearm" in args.results_path):
+        tasks = list(ALL_COLOSSEUM_V2_SINGLE_ARM_TASKS)
     else:
-        results_df = read_csv(args.results_path)
-    assert results_df.columns.tolist() == expected_columns
+        raise Exception(f"Unclear whether {args.results_path} is for bimanual or single arm tasks")
+
+    if len(args.tasks_subset) > 0:
+        tasks = [task for task in tasks if task in args.tasks_subset]
+        assert len(tasks) > 0, f"No tasks found in {args.tasks_subset} after filtering by args.tasks_subset: {args.tasks_subset}"
+
+    if len(args.perturbation_factors_subset) > 0:
+        perturbation_factors = list(args.perturbation_factors_subset)
+    else:
+        perturbation_factors = list(PERTURBATION_SETS.keys())
+    return tasks, perturbation_factors
+
+
+def load_results_df(results_path: str) -> DataFrame:
+    if not Path(results_path).exists():
+        return DataFrame(columns=RESULTS_CSV_COLUMNS)
+    results_df = read_csv(results_path)
+    assert results_df.columns.tolist() == RESULTS_CSV_COLUMNS
+    return results_df
+
+
+def get_remaining_eval_pairs(args: Args, results_df: DataFrame | None = None) -> tuple[list[tuple[str, str]], int]:
+    """Return unfinished (task, perturbation) pairs and total planned pairs."""
+    assert args.results_path is not None
+    tasks, perturbation_factors = get_tasks_and_perturbations(args)
+    n_total = len(tasks) * len(perturbation_factors)
+    if results_df is None:
+        results_df = load_results_df(args.results_path)
+
+    done = set()
+    if len(results_df) > 0:
+        for env_id, pert in zip(results_df["env_id"], results_df["perturbation_set"]):
+            done.add((str(env_id), str(pert).lower()))
+
+    remaining = [
+        (task, perturbation_set)
+        for task in tasks
+        for perturbation_set in perturbation_factors
+        if (task, perturbation_set.lower()) not in done
+    ]
+    return remaining, n_total
+
+
+def update_args_from_results_csv(args: Args):
+    assert args.results_path is not None
+    results_df = load_results_df(args.results_path)
 
     if "bimanual" in args.results_path:
-        is_bimanual = True
-        tasks = ALL_COLOSSEUM_V2_BIMANUAL_TASKS
         print("Evaluating bimanual tasks")
         assert args.control_mode == "pd_joint_pos", f"The control_mode should be pd_joint_pos for bimanual tasks"
     elif ("single_arm" in args.results_path) or ("singlearm" in args.results_path):
-        is_bimanual = False
-        tasks = ALL_COLOSSEUM_V2_SINGLE_ARM_TASKS
         print("Evaluating single arm tasks")
     else:
         raise Exception(f"Unclear whether {args.results_path} is for bimanual or single arm tasks")
@@ -196,58 +241,39 @@ def update_args_from_results(args: Args):
     args.now = get_now_str()
     args.pc_hostname = socket.gethostname()
 
-    # Filter tasks
-    if len(args.tasks_subset) > 0:
-        tasks = [task for task in tasks if task in args.tasks_subset]
-        assert len(tasks) > 0, f"No tasks found in {args.tasks_subset} after filtering by args.tasks_subset: {args.tasks_subset}"
-
-    # 
-    if len(args.perturbation_factors_subset) > 0:
-        perturbation_factors = args.perturbation_factors_subset
-    else:
-        perturbation_factors = PERTURBATION_SETS.keys()
+    remaining, n_total = get_remaining_eval_pairs(args, results_df=results_df)
+    tasks, perturbation_factors = get_tasks_and_perturbations(args)
     print("Considering perturbation factors: ", perturbation_factors)
     print("Considering tasks: ", tasks)
+    print(f"Remaining eval pairs: {len(remaining)}/{n_total}")
 
-    for task in tasks:
-        for perturbation_set in perturbation_factors:
-            result_found = results_df[
-                (results_df["env_id"] == task)
-                & (results_df["perturbation_set"].str.lower() == perturbation_set.lower())
-            ]
-            if len(result_found) > 0:
-                print(f"Found existing result for task {task} and perturbation set {perturbation_set}")
-                continue
-            cprint(f"Starting evaluation for '{task}' with '{perturbation_set}'", "green")
-            args.env_id = task
-            args.perturbation_set = perturbation_set
+    if len(remaining) == 0:
+        raise OutOfTasksError("No result found for any task and perturbation set")
 
-            row = [
-                args.checkpoint_path,
-                args.pc_hostname,
-                args.now,
-                "final-time-not-set",
-                -1,
-                perturbation_set.lower(),
-                task,
-                args.control_mode,
-                args.include_depth,
-                args.num_eval_episodes,
-                args.max_episode_steps,
-                "placeholder",
-                -1,
-                -1,
-            ]
-            results_df.loc[len(results_df)] = row
-            results_df.to_csv(args.results_path, index=False)
+    task, perturbation_set = remaining[0]
+    cprint(f"Starting evaluation for '{task}' with '{perturbation_set}'", "green")
+    args.env_id = task
+    args.perturbation_set = perturbation_set
 
-            if is_bimanual and (("table_" in perturbation_set.lower()) or ("all" in perturbation_set.lower())):
-                args.num_eval_envs = int(args.num_eval_envs / 4)
-                print(f"Reducing number of evaluation environments to {args.num_eval_envs}. Bimanual tasks with table-related perturbation sets use far greater GPU memory.")
-
-            return args
-
-    raise OutOfTasksError("No result found for any task and perturbation set")
+    row = [
+        args.checkpoint_path,
+        args.pc_hostname,
+        args.now,
+        "final-time-not-set",
+        -1,
+        perturbation_set.lower(),
+        task,
+        args.control_mode,
+        args.include_depth,
+        args.num_eval_episodes,
+        args.max_episode_steps,
+        "placeholder",
+        -1,
+        -1,
+    ]
+    results_df.loc[len(results_df)] = row
+    results_df.to_csv(args.results_path, index=False)
+    return args
 
 
 if __name__ == "__main__":
@@ -270,7 +296,7 @@ if __name__ == "__main__":
 
     if args.results_path is not None:
         try:
-            args = update_args_from_results(args)
+            args = update_args_from_results_csv(args)
         except OutOfTasksError as e:
             cprint(f"SUCCESS: {e}. Exiting.", "green")
             exit(0)
@@ -360,13 +386,14 @@ if __name__ == "__main__":
     envs.close()
 
     if args.results_path is not None:
+        duration_sec = time() - t0
         results_df = read_csv(args.results_path)
         new_row = [
             args.checkpoint_path,
             args.pc_hostname,
             args.now,
             get_now_str(),
-            time() - t0,
+            duration_sec,
             args.perturbation_set.lower(),
             args.env_id,
             args.control_mode,
@@ -380,3 +407,12 @@ if __name__ == "__main__":
         results_df.loc[len(results_df)] = new_row
         results_df.to_csv(args.results_path, index=False)
         print(f"Saved results_df to {args.results_path}")
+
+        remaining, n_total = get_remaining_eval_pairs(args)
+        eta_hours = len(remaining) * duration_sec / 3600.0
+        cprint(
+            f"Estimated time remaining: {eta_hours:.2f} hours "
+            f"({len(remaining)}/{n_total} pairs left × {duration_sec:.1f}s this run)",
+            "cyan",
+        )
+

@@ -50,7 +50,8 @@ LOGS_DIR="logs/act_clip"
 mkdir -p $LOGS_DIR
 NOW=$(date +%H:%M:%S)
 
-# python scripts/colosseum_v2_paper/remove_placeholder_rows.py $LOGS_DIR/single_arm__table.csv
+# python scripts/colosseum_v2_paper/remove_placeholder_rows.py $LOGS_DIR/single_arm.csv
+# python scripts/colosseum_v2_paper/remove_placeholder_rows.py $LOGS_DIR/bimanual.csv
 
 while true; do
     python examples/baselines/act_clip/eval_rgbd.py \
@@ -75,7 +76,7 @@ while true; do
         --is-multi-task True \
         --target-num-cams 4 \
         --num-eval-episodes 200 \
-        --num-eval-envs 34 \
+        --num-eval-envs 200 \
         --max-episode-steps-from-lookup \
         --internal-instruction \
         --perturbation-set "BLANK" \
