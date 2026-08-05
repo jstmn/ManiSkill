@@ -1,13 +1,16 @@
 import argparse
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 import pandas as pd
 from pathlib import Path
 from typing import Any, Final, cast
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import plot_style  # noqa: F401  # Agg backend + IBM Plex Mono
+
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+
 sys.path.append("examples/baselines/act_clip")
 from eval_rgbd import MAX_EPISODE_STEPS_BY_TASK
 
@@ -102,7 +105,7 @@ def generate_runtime_figure(timing_csvs: list[str], model_names: list[str], outp
 
     timing_dfs = [load_df(p) for p in timing_csvs]
 
-    fontsize = 14
+    fontsize = 13
 
     fig, (ax_left, ax_right) = plt.subplots(
         1,

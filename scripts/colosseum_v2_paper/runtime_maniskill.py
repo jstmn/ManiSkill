@@ -1,11 +1,15 @@
 import argparse
 from time import time
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+from pathlib import Path
+import sys
 import pandas as pd
 import gymnasium as gym
 from mani_skill.envs.tasks.tabletop.colosseum_v2.raise_cube import RaiseCubeEnv
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import plot_style  # noqa: F401  # Agg backend + IBM Plex Mono
+
+import matplotlib.pyplot as plt
 
 """
 This script measures maniskill's FPS for difference batch sizes.

@@ -1,11 +1,15 @@
 import argparse
 import os
+import sys
+from pathlib import Path
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
 from typing import Dict, cast
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import plot_style  # noqa: F401  # Agg backend + IBM Plex Mono
+
+import matplotlib.pyplot as plt
 from matplotlib.projections.polar import PolarAxes
 
 """This script generates the figures for the Colosseum-V2 paper.
@@ -29,36 +33,33 @@ DualArmDrawerPlace,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,,,,,0.0,0.0,0.0,0.0,0.0
 
 # Example usage:
 python scripts/colosseum_v2_paper/figures.py \
-    --act-single-arm-csv logs/parsed_ACT/single_arm.formatted.csv \
-    --act-bimanual-csv logs/parsed_ACT/bimanual.formatted.csv \
-    --pi0-single-arm-csv logs/parsed_pi0/single_arm_5epochs.formatted.csv \
-    --pi0-bimanual-csv logs/parsed_pi0/bimanual_5epochs.formatted.csv \
+    --act-single-arm-csv logs/act_clip/single_arm.formatted.csv \
+    --act-bimanual-csv logs/act_clip/bimanual.formatted.csv \
+    --pi0-single-arm-csv logs/pi0/single_arm.formatted.csv \
+    --pi0-bimanual-csv logs/pi0/bimanual.formatted.csv \
+    --molmoact2-single-arm-csv logs/molmoact2/single_arm.formatted.csv \
+    --molmoact2-bimanual-csv logs/molmoact2/bimanual.formatted.csv \
     --output-dir logs/
 """
 
+# Model families sit on distinct hues; within a family, single-arm is brighter
+# (solid) and bimanual is darker (dashed).
 COLOR_MAP = {
-    "ACT - Single-Arm": "#ffd700", # yellow
-    "ACT - Bimanual": "#fe6e5a", # orange
-    "Pi0.5 - Single-Arm": "#0070ff", # blue
-    "Pi0.5 - Bimanual": "#cd34b5", # purple
-    # "ACT - Bimanual": "#ffd700",
-    # "Pi0.5 - Bimanual": "#fe6e5a",
-    # "ACT - Single-Arm": "#cd34b5",
-    # "Pi0.5 - Single-Arm": "#0070ff", # this one is pretty good - more muted than 0000ff so doesn't stand out as much
+    "ACT - Single-Arm": "#ffd700",          # yellow
+    "ACT - Bimanual": "#fe6e5a",            # coral
+    "Pi0.5 - Single-Arm": "#0070ff",        # blue
+    "Pi0.5 - Bimanual": "#cd34b5",          # purple
+    "MolmoAct2 - Single-Arm": "#00bfa5",    # teal
+    "MolmoAct2 - Bimanual": "#0f766e",      # dark teal
 }
 
 LINE_STYLE_MAP = {
-    "ACT - Bimanual":  "--",
-    "Pi0.5 - Bimanual":"--",
     "ACT - Single-Arm": None,
+    "ACT - Bimanual": "--",
     "Pi0.5 - Single-Arm": None,
-}
-
-LINE_STYLE_MAP = {
-    "ACT - Bimanual":  "--",
-    "Pi0.5 - Bimanual":"--",
-    "ACT - Single-Arm": None,
-    "Pi0.5 - Single-Arm": None,
+    "Pi0.5 - Bimanual": "--",
+    "MolmoAct2 - Single-Arm": None,
+    "MolmoAct2 - Bimanual": "--",
 }
 
 PERTURBATION_SETS=(
@@ -138,6 +139,21 @@ assert len(VISION_PERTURBATION_SETS) + len(ACTION_PERTURBATION_SETS) + len(LANGU
 LOWEST_NONE_SUCCESS_RATE_FOR_COUNTING = 10
 
 
+def _load_formatted_results_csv(result_csv: str) -> pd.DataFrame:
+    """Load a parse_logs pivoted CSV (Task + perturbation columns)."""
+    df = pd.read_csv(result_csv)
+    if "Task" not in df.columns:
+        raise KeyError(
+            f"CSV {result_csv} is missing a 'Task' column. "
+            f"figures.py expects a pivoted table from parse_logs "
+            f"(e.g. '*.formatted.csv'), not a raw eval log. "
+            f"Got columns: {list(df.columns)}"
+        )
+    df = df.copy()
+    df["Task"] = df["Task"].astype(str).str.strip()
+    return df.set_index("Task", drop=True)
+
+
 def calculate_mean_changes_from_none(result_csvs: list[str], model_names: list[str]):
     mean_changes_from_none = {
         name: {} for name in model_names
@@ -146,9 +162,7 @@ def calculate_mean_changes_from_none(result_csvs: list[str], model_names: list[s
         name: {} for name in model_names
     }
     for model_name, result_csv in zip(model_names, result_csvs):
-        df = pd.read_csv(result_csv)
-        df["Task"] = df["Task"].astype(str).str.strip()
-        df = df.set_index("Task", drop=True)
+        df = _load_formatted_results_csv(result_csv)
         
         # Allow perturbation-set columns to be either exact-case (e.g. MO_color) or lower-case (e.g. mo_color).
         col_by_lower = {str(c).strip().lower(): c for c in df.columns}
@@ -159,11 +173,7 @@ def calculate_mean_changes_from_none(result_csvs: list[str], model_names: list[s
 
 
     for model_name, result_csv in zip(model_names, result_csvs):
-        df = pd.read_csv(result_csv)
-
-        # Index by task name for easy lookup: df.loc[task, perturbation_set]
-        df["Task"] = df["Task"].astype(str).str.strip()
-        df = df.set_index("Task", drop=True)
+        df = _load_formatted_results_csv(result_csv)
         filtered_out_tasks = df[df["none"] < LOWEST_NONE_SUCCESS_RATE_FOR_COUNTING]
         if not filtered_out_tasks.empty:
             print(
@@ -241,9 +251,7 @@ def print_threshold_task_latex_table(result_csvs: list[str], model_names: list[s
     all_tasks = set()
 
     for i, (model_name, result_csv) in enumerate(zip(model_names, result_csvs)):
-        df = pd.read_csv(result_csv)
-        df["Task"] = df["Task"].astype(str).str.strip()
-        df = df.set_index("Task", drop=True)
+        df = _load_formatted_results_csv(result_csv)
 
         included_tasks = sorted(str(task) for task in df[df["none"] >= LOWEST_NONE_SUCCESS_RATE_FOR_COUNTING].index)
         excluded_tasks = sorted(str(task) for task in df[df["none"] < LOWEST_NONE_SUCCESS_RATE_FOR_COUNTING].index)
@@ -523,14 +531,6 @@ def generate_radial_two_plots(mean_absolute_sr: Dict[str, Dict[str, float]], mea
             "abs": [mean_clumped_absolute_sr[model][cat] for cat in categories]
         } for model in model_names
     } 
-    for model in model_names:
-        print(f"Model {model}:")
-        print(f"  - values_delta[model]['delta']:")
-        for val, cat in zip(values_delta[model]['delta'], categories):
-            print(f"      - {cat}: {val:.4f}")
-        print(f"  - values_delta[model]['abs']:")
-        for val, cat in zip(values_delta[model]['abs'], categories):
-            print(f"      - {cat}: {val:.4f}")
 
     # Angles for each axis (close the loop by repeating the first).
     angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
@@ -633,14 +633,6 @@ def generate_radial_two_plots_v2(mean_absolute_sr: Dict[str, Dict[str, float]], 
             "abs": [mean_clumped_absolute_sr[model][cat] for cat in categories]
         } for model in model_names
     }
-    for model in model_names:
-        print(f"Model {model}:")
-        print(f"  - values_delta[model]['delta']:")
-        for val, cat in zip(values_delta[model]['delta'], categories):
-            print(f"      - {cat}: {val:.4f}")
-        print(f"  - values_delta[model]['abs']:")
-        for val, cat in zip(values_delta[model]['abs'], categories):
-            print(f"      - {cat}: {val:.4f}")
 
     ticks_fontsize = 12
 
@@ -716,140 +708,6 @@ def generate_radial_two_plots_v2(mean_absolute_sr: Dict[str, Dict[str, float]], 
     print(f"Saved radial two plots to {save_path}")
 
 
-# def generate_radial_two_plots_v2(mean_absolute_sr: Dict[str, Dict[str, float]], mean_changes_from_none: Dict[str, Dict[str, float]], model_names: list[str], output_dir: str):
-#     # Compute per-model means clumped by modality.
-#     mean_clumped_changes: Dict[str, Dict[str, float]] = {
-#         model: {"vision": 0.0, "action": 0.0, "language": 0.0} for model in model_names
-#     }
-#     mean_clumped_absolute_sr: Dict[str, Dict[str, float]] = {
-#         model: {"vision": 0.0, "action": 0.0, "language": 0.0} for model in model_names
-#     }
-#     # SR
-#     for model in model_names:
-#         mean_srs = mean_absolute_sr.get(model)
-#         assert isinstance(mean_srs, dict)
-#         vision_vals = []
-#         action_vals = []
-#         language_vals = []
-#         for ds in VISION_PERTURBATION_SETS:
-#             vision_vals.append(float(mean_srs[ds]))
-#         for ds in ACTION_PERTURBATION_SETS:
-#             action_vals.append(float(mean_srs[ds]))
-#         for ds in LANGUAGE_PERTURBATION_SETS:
-#             language_vals.append(float(mean_srs[ds]))
-
-#         mean_clumped_absolute_sr[model]["vision"] = float(np.mean(vision_vals))
-#         mean_clumped_absolute_sr[model]["action"] = float(np.mean(action_vals))
-#         mean_clumped_absolute_sr[model]["language"] = float(np.mean(language_vals))
-
-#     # Change
-#     for model in model_names:
-#         mean_changes = mean_changes_from_none.get(model)
-#         assert isinstance(mean_changes, dict)
-#         vision_vals = []
-#         action_vals = []
-#         language_vals = []
-#         for ds in VISION_PERTURBATION_SETS:
-#             vision_vals.append(float(mean_changes[ds]))
-#         for ds in ACTION_PERTURBATION_SETS:
-#             action_vals.append(float(mean_changes[ds]))
-#         for ds in LANGUAGE_PERTURBATION_SETS:
-#             language_vals.append(float(mean_changes[ds]))
-
-#         mean_clumped_changes[model]["vision"] = -float(np.mean(vision_vals))
-#         mean_clumped_changes[model]["action"] = -float(np.mean(action_vals))
-#         mean_clumped_changes[model]["language"] = -float(np.mean(language_vals))
-
-#     # Plot: left = grouped bar chart (delta), right = radial chart (abs SR).
-#     categories = ["language", "vision", "action"]
-#     display = {"vision": "Vision", "action": "Action", "language": "Language"}
-#     values_delta = {
-#         model: {
-#             "delta": [mean_clumped_changes[model][cat] for cat in categories],
-#             "abs": [mean_clumped_absolute_sr[model][cat] for cat in categories]
-#         } for model in model_names
-#     }
-#     for model in model_names:
-#         print(f"Model {model}:")
-#         print(f"  - values_delta[model]['delta']:")
-#         for val, cat in zip(values_delta[model]['delta'], categories):
-#             print(f"      - {cat}: {val:.4f}")
-#         print(f"  - values_delta[model]['abs']:")
-#         for val, cat in zip(values_delta[model]['abs'], categories):
-#             print(f"      - {cat}: {val:.4f}")
-
-#     ticks_fontsize = 12
-
-#     fig = plt.figure(figsize=(10, 4.4))
-#     ax_bar = fig.add_subplot(1, 2, 1)
-#     ax_radar = fig.add_subplot(1, 2, 2, polar=True)
-
-#     # --- Left: grouped bar chart of robustness drop (delta) ---
-#     n_models = len(model_names)
-#     n_cats = len(categories)
-#     bar_width = 0.8 / n_models
-#     x = np.arange(n_cats)
-#     offsets = np.linspace(-(n_models - 1) / 2, (n_models - 1) / 2, n_models) * bar_width
-
-#     for i, model in enumerate(model_names):
-#         vals = values_delta[model]["delta"]
-#         ax_bar.bar(
-#             x + offsets[i],
-#             vals,
-#             width=bar_width,
-#             label=model,
-#             color=COLOR_MAP[model],
-#             edgecolor="white",
-#             linewidth=0.5,
-#         )
-
-#     ax_bar.set_xticks(x)
-#     ax_bar.set_xticklabels([display[c] for c in categories], fontsize=ticks_fontsize)
-#     ax_bar.tick_params(axis="y", labelsize=ticks_fontsize)
-#     ax_bar.set_ylabel("Mean Decrease vs. No Variation [%]", fontsize=ticks_fontsize)
-#     ax_bar.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
-#     ax_bar.grid(axis="y", alpha=0.35)
-#     ax_bar.set_axisbelow(True)
-#     ax_bar.spines["top"].set_visible(False)
-#     ax_bar.spines["right"].set_visible(False)
-
-#     # --- Right: radial chart of absolute SR ---
-#     angles = np.linspace(0, 2 * np.pi, n_cats, endpoint=False).tolist()
-#     angles.append(angles[0])
-
-#     ax_radar.set_theta_offset(np.pi / 2)
-#     ax_radar.set_theta_direction(-1)
-#     ax_radar.set_xticks(angles[:-1])
-#     ax_radar.set_xticklabels([display[c] for c in categories], fontsize=ticks_fontsize)
-#     label_pads = {"vision": 10, "action": 8, "language": 0}
-#     for tick, cat in zip(ax_radar.xaxis.get_major_ticks(), categories):
-#         tick.set_pad(label_pads[cat])
-#     ax_radar.tick_params(axis="y", labelsize=ticks_fontsize)
-#     ax_radar.set_rlabel_position(180)
-#     ax_radar.grid(True, alpha=0.35)
-#     ax_radar.set_xlabel("Mean Absolute Success Rate [%]", fontsize=ticks_fontsize)
-
-#     for model in model_names:
-#         vals_abs = values_delta[model]["abs"] + [values_delta[model]["abs"][0]]
-#         ax_radar.plot(angles, vals_abs, linewidth=2, label=model, color=COLOR_MAP[model], linestyle=LINE_STYLE_MAP.get(model))
-#         ax_radar.fill(angles, vals_abs, color=COLOR_MAP[model], alpha=0.10)
-
-#     # legend = ax_radar.legend(loc="upper right", bbox_to_anchor=(1.35, 1.15), fontsize=12, frameon=True)
-#     legend = ax_radar.legend(loc="upper left", bbox_to_anchor=(-0.4, 1.15), fontsize=12, frameon=True)
-#     legend.get_frame().set_facecolor("white")
-#     legend.get_frame().set_alpha(1.0)
-#     legend.get_frame().set_edgecolor("#cccccc")
-#     legend.get_frame().set_linewidth(1.0)
-#     plt.tight_layout()
-#     plt.subplots_adjust(wspace=0.0)
-
-#     os.makedirs(output_dir, exist_ok=True)
-#     save_path = os.path.join(output_dir, "radial_two_plots_v2.png")
-#     plt.savefig(save_path, bbox_inches="tight")
-#     plt.close()
-#     print(f"Saved radial two plots to {save_path}")
-
-
 def generate_waterfall_plot(single_arm_csvs: list[str], single_arm_model_names: list[str], bimanual_csvs: list[str], bimanual_model_names: list[str], output_dir: str):
     """This function generates bar charts of the success rate on the 'none' environment variation for each task.
     For each model, the y-axis is the success rate on the 'none' environment variation. The x-axis is the task index.
@@ -867,11 +725,8 @@ def generate_waterfall_plot(single_arm_csvs: list[str], single_arm_model_names: 
         max_n_tasks = 0
 
         for model_idx, (model_name, result_csv) in enumerate(zip(model_names, result_csvs)):
-            df = pd.read_csv(result_csv)
-            if "Task" not in df.columns:
-                raise ValueError(f"CSV {result_csv} missing required 'Task' column. Got columns: {list(df.columns)}")
+            df = _load_formatted_results_csv(result_csv).reset_index()
 
-            df["Task"] = df["Task"].astype(str).str.strip()
             none_col = "none"
             if none_col not in df.columns:
                 raise KeyError(f"CSV {result_csv} missing 'none' column. Got columns: {list(df.columns)}")
@@ -940,7 +795,7 @@ def generate_mean_change_figure(mean_changes_from_none: Dict[str, Dict[str, floa
     x = range(n_ds)
     bar_width = 0.8 / n_models
 
-    plt.figure(figsize=(16, 4))
+    plt.figure(figsize=(16, 4.5))
     for i, model in enumerate(model_names):
         plt.bar(
             [xx + (i - n_models/2) * bar_width + bar_width/2 for xx in x],
@@ -950,7 +805,7 @@ def generate_mean_change_figure(mean_changes_from_none: Dict[str, Dict[str, floa
             color=COLOR_MAP[model]
         )
 
-    fontsize = 11
+    fontsize = 13
     plt.xticks(
         x,
         [PERTURBATION_SET_DISPLAY_NAMES[ds] for ds in perturbation_sets],
@@ -958,6 +813,7 @@ def generate_mean_change_figure(mean_changes_from_none: Dict[str, Dict[str, floa
         ha='right',
         fontsize=fontsize
     )
+    plt.yticks(fontsize=fontsize)
     plt.ylabel("Mean Absolute Change\nin Success Rate", fontsize=fontsize)
     plt.legend(fontsize=fontsize)
     plt.tight_layout()
@@ -977,11 +833,27 @@ if __name__ == "__main__":
     parser.add_argument("--act-bimanual-csv", type=str, required=True)
     parser.add_argument("--pi0-single-arm-csv", type=str, required=True)
     parser.add_argument("--pi0-bimanual-csv", type=str, required=True)
+    parser.add_argument("--molmoact2-single-arm-csv", type=str, required=True)
+    parser.add_argument("--molmoact2-bimanual-csv", type=str, required=True)
     parser.add_argument("--output-dir", type=str, required=True)
     args = parser.parse_args()
 
-    result_csvs = [args.act_single_arm_csv, args.act_bimanual_csv, args.pi0_single_arm_csv, args.pi0_bimanual_csv]
-    model_names = ["ACT - Single-Arm", "ACT - Bimanual", "Pi0.5 - Single-Arm", "Pi0.5 - Bimanual"]
+    result_csvs = [
+        args.act_single_arm_csv,
+        args.act_bimanual_csv,
+        args.pi0_single_arm_csv,
+        args.pi0_bimanual_csv,
+        args.molmoact2_single_arm_csv,
+        args.molmoact2_bimanual_csv,
+    ]
+    model_names = [
+        "ACT - Single-Arm",
+        "ACT - Bimanual",
+        "Pi0.5 - Single-Arm",
+        "Pi0.5 - Bimanual",
+        "MolmoAct2 - Single-Arm",
+        "MolmoAct2 - Bimanual",
+    ]
     mean_changes_from_none, mean_absolute_sr = calculate_mean_changes_from_none(result_csvs, model_names)
     print_threshold_task_latex_table(result_csvs, model_names)
 
@@ -991,38 +863,44 @@ if __name__ == "__main__":
     act_single_arm_results = mean_changes_from_none["ACT - Single-Arm"]
     pi0_bimanual_results = mean_changes_from_none["Pi0.5 - Bimanual"]
     pi0_single_arm_results = mean_changes_from_none["Pi0.5 - Single-Arm"]
+    molmo_bimanual_results = mean_changes_from_none["MolmoAct2 - Bimanual"]
+    molmo_single_arm_results = mean_changes_from_none["MolmoAct2 - Single-Arm"]
     act_deltas = []
     pi0_deltas = []
+    molmo_deltas = []
     for ds in PERTURBATION_SETS:
         if 'none'.lower() in ds.lower():
             continue
-        act_bimanual_result = act_bimanual_results[ds]
-        act_single_arm_result = act_single_arm_results[ds]
-        pi0_bimanual_result = pi0_bimanual_results[ds]
-        pi0_single_arm_result = pi0_single_arm_results[ds]
-        act_delta = abs(act_single_arm_result - act_bimanual_result)
-        pi0_delta = abs(pi0_single_arm_result - pi0_bimanual_result)
-        print(f"{ds}:\tACT - Single/Bimanual: {act_delta:.4f}\tPi0.5 - Single/Bimanual: {pi0_delta:.4f}")
+        act_delta = abs(act_single_arm_results[ds] - act_bimanual_results[ds])
+        pi0_delta = abs(pi0_single_arm_results[ds] - pi0_bimanual_results[ds])
+        molmo_delta = abs(molmo_single_arm_results[ds] - molmo_bimanual_results[ds])
+        print(
+            f"{ds}:\tACT - Single/Bimanual: {act_delta:.4f}\t"
+            f"Pi0.5 - Single/Bimanual: {pi0_delta:.4f}\t"
+            f"MolmoAct2 - Single/Bimanual: {molmo_delta:.4f}"
+        )
         act_deltas.append(act_delta)
         pi0_deltas.append(pi0_delta)
+        molmo_deltas.append(molmo_delta)
     print(f"ACT - Single-Arm, Bimanual: {np.mean(act_deltas):.4f}")
     print(f"Pi0.5 - Bimanual, Single-Arm: {np.mean(pi0_deltas):.4f}")
+    print(f"MolmoAct2 - Single-Arm, Bimanual: {np.mean(molmo_deltas):.4f}")
     print()
 
 
     # Generate plots
-    # generate_mean_change_figure(mean_changes_from_none, model_names, args.output_dir)
+    generate_mean_change_figure(mean_changes_from_none, model_names, args.output_dir)
     # generate_clumped_change_figure(mean_changes_from_none, model_names, args.output_dir)
     # generate_clumped_change_figure_radial(mean_changes_from_none, model_names, args.output_dir)
     # generate_radial_absolute(mean_absolute_sr, model_names, args.output_dir)
     # generate_radial_two_plots(mean_absolute_sr, mean_changes_from_none, model_names, args.output_dir)
-    # generate_radial_two_plots_v2(mean_absolute_sr, mean_changes_from_none, model_names, args.output_dir)
+    generate_radial_two_plots_v2(mean_absolute_sr, mean_changes_from_none, model_names, args.output_dir)
 
     # Waterfall plots
     generate_waterfall_plot(
-        single_arm_csvs=[args.act_single_arm_csv, args.pi0_single_arm_csv],
-        single_arm_model_names=["ACT - Single-Arm", "Pi0.5 - Single-Arm"],
-        bimanual_csvs=[args.act_bimanual_csv, args.pi0_bimanual_csv],
-        bimanual_model_names=["ACT - Bimanual", "Pi0.5 - Bimanual"],
+        single_arm_csvs=[args.act_single_arm_csv, args.pi0_single_arm_csv, args.molmoact2_single_arm_csv],
+        single_arm_model_names=["ACT - Single-Arm", "Pi0.5 - Single-Arm", "MolmoAct2 - Single-Arm"],
+        bimanual_csvs=[args.act_bimanual_csv, args.pi0_bimanual_csv, args.molmoact2_bimanual_csv],
+        bimanual_model_names=["ACT - Bimanual", "Pi0.5 - Bimanual", "MolmoAct2 - Bimanual"],
         output_dir=args.output_dir,
     )

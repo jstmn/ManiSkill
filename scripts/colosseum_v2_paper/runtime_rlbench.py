@@ -2,11 +2,9 @@ import argparse
 import psutil
 from time import time, sleep
 import os
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import pandas as pd
 from pathlib import Path
+import sys
+import pandas as pd
 import rlbench
 import gymnasium as gym
 import multiprocessing as mp
@@ -14,7 +12,11 @@ from typing import Any
 from rlbench.action_modes.action_mode import JointPositionActionMode
 import numpy as np
 
-import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import plot_style  # noqa: F401  # Agg backend + IBM Plex Mono
+
+import matplotlib.pyplot as plt
+
 sys.path.append("examples/baselines/act_clip")
 from eval_rgbd import MAX_EPISODE_STEPS_BY_TASK
 

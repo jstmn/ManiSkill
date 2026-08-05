@@ -204,6 +204,54 @@ def load_results_df(results_path: str) -> DataFrame:
     return results_df
 
 
+def finalize_results_row(
+    args: Args,
+    *,
+    duration_sec: float,
+    message: str,
+    n_episodes: int,
+    n_success: int | float,
+    success_percent,
+) -> None:
+    """Replace the placeholder for this (env, perturbation) with a final row.
+
+    Falls back to append if no placeholder is found.
+    """
+    assert args.results_path is not None
+    results_df = load_results_df(args.results_path)
+    pert = args.perturbation_set.lower()
+    env_id = args.env_id
+    placeholder_mask = (
+        (results_df["env_id"] == env_id)
+        & (results_df["perturbation_set"].astype(str).str.lower() == pert)
+        & (results_df["message"].astype(str).str.lower() == "placeholder")
+    )
+    row = {
+        "checkpoint_path": args.checkpoint_path,
+        "pc_hostname": args.pc_hostname,
+        "now": args.now,
+        "t_final": get_now_str(),
+        "duration_sec": duration_sec,
+        "perturbation_set": pert,
+        "env_id": env_id,
+        "control_mode": args.control_mode,
+        "include_depth": args.include_depth,
+        "num_eval_episodes": n_episodes,
+        "max_episode_steps": args.max_episode_steps,
+        "message": message,
+        "num_sucessful_episodes": n_success,
+        "success_percent": success_percent,
+    }
+    if placeholder_mask.any():
+        idx = results_df.index[placeholder_mask][-1]
+        for col, val in row.items():
+            results_df.at[idx, col] = val
+    else:
+        results_df = DataFrame([*results_df.to_dict("records"), row], columns=RESULTS_CSV_COLUMNS)
+    results_df.to_csv(args.results_path, index=False)
+    print(f"Saved results_df to {args.results_path} (message={message!r})")
+
+
 def get_remaining_eval_pairs(args: Args, results_df: DataFrame | None = None) -> tuple[list[tuple[str, str]], int]:
     """Return unfinished (task, perturbation) pairs and total planned pairs."""
     assert args.results_path is not None
@@ -255,23 +303,23 @@ def update_args_from_results_csv(args: Args):
     args.env_id = task
     args.perturbation_set = perturbation_set
 
-    row = [
-        args.checkpoint_path,
-        args.pc_hostname,
-        args.now,
-        "final-time-not-set",
-        -1,
-        perturbation_set.lower(),
-        task,
-        args.control_mode,
-        args.include_depth,
-        args.num_eval_episodes,
-        args.max_episode_steps,
-        "placeholder",
-        -1,
-        -1,
-    ]
-    results_df.loc[len(results_df)] = row
+    row = {
+        "checkpoint_path": args.checkpoint_path,
+        "pc_hostname": args.pc_hostname,
+        "now": args.now,
+        "t_final": "final-time-not-set",
+        "duration_sec": -1,
+        "perturbation_set": perturbation_set.lower(),
+        "env_id": task,
+        "control_mode": args.control_mode,
+        "include_depth": args.include_depth,
+        "num_eval_episodes": args.num_eval_episodes,
+        "max_episode_steps": args.max_episode_steps,
+        "message": "placeholder",
+        "num_sucessful_episodes": -1,
+        "success_percent": -1,
+    }
+    results_df = DataFrame([*results_df.to_dict("records"), row], columns=RESULTS_CSV_COLUMNS)
     results_df.to_csv(args.results_path, index=False)
     return args
 
@@ -294,44 +342,77 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and "cuda" in args.sim_backend else "cpu")
 
-    if args.results_path is not None:
+    # Claim pairs until we successfully create an env (skip disabled variations in-process).
+    envs = None
+    while envs is None:
+        if args.results_path is not None:
+            try:
+                args = update_args_from_results_csv(args)
+            except OutOfTasksError as e:
+                cprint(f"SUCCESS: {e}. Exiting.", "green")
+                exit(0)
+
+        if args.max_episode_steps_from_lookup:
+            if args.env_id in MAX_EPISODE_STEPS_BY_TASK:
+                args.max_episode_steps = MAX_EPISODE_STEPS_BY_TASK[args.env_id]
+            else:
+                cprint(
+                    f"--max-episode-steps-from-lookup is enabled but environment {args.env_id} not found in "
+                    f"MAX_EPISODE_STEPS_BY_TASK. Using user-provided max episode steps: {args.max_episode_steps}",
+                    "yellow",
+                )
+
+        # env setup
+        env_kwargs = dict(
+            control_mode=args.control_mode,
+            reward_mode="sparse",
+            obs_mode="rgbd" if args.include_depth else "rgb",
+            render_mode="rgb_array" if args.capture_video else None,
+            perturbation_set=PERTURBATION_SETS[args.perturbation_set.upper()].to_dict(),
+            _env_id=args.env_id,
+        )
+        # ^ perturbation_set needs to be pickle-able by ManiSkillVectorEnv, so we convert it to a dictionary
+        if args.max_episode_steps is not None:
+            env_kwargs["max_episode_steps"] = args.max_episode_steps
+        other_kwargs = None
+        wrappers = [
+            partial(
+                FlattenRGBDObservationWrapper,
+                is_multi_task=args.is_multi_task,
+                target_num_cams=args.target_num_cams,
+                depth=args.include_depth,
+            )
+        ]
+        video_dir = args.checkpoint_path.replace(".pt", "__videos")
+        video_filename = f"{args.env_id}___ds:{args.perturbation_set}"
         try:
-            args = update_args_from_results_csv(args)
-        except OutOfTasksError as e:
-            cprint(f"SUCCESS: {e}. Exiting.", "green")
-            exit(0)
-        except Exception as e:
-            raise e
-
-    if args.max_episode_steps_from_lookup:
-        if args.env_id in MAX_EPISODE_STEPS_BY_TASK:
-            args.max_episode_steps = MAX_EPISODE_STEPS_BY_TASK[args.env_id]
-        else:
-            cprint(f"--max-episode-steps-from-lookup is enabled but environment {args.env_id} not found in MAX_EPISODE_STEPS_BY_TASK. Using user-provided max episode steps: {args.max_episode_steps}", "yellow")
-
-    # env setup
-    env_kwargs = dict(
-        control_mode=args.control_mode,
-        reward_mode="sparse", 
-        obs_mode="rgbd" if args.include_depth else "rgb", 
-        render_mode="rgb_array" if args.capture_video else None,
-        perturbation_set=PERTURBATION_SETS[args.perturbation_set.upper()].to_dict(),
-        _env_id=args.env_id,
-    )
-    # ^ perturbation_set needs to be pickle-able by ManiSkillVectorEnv, so we convert it to a dictionary
-    if args.max_episode_steps is not None:
-        env_kwargs["max_episode_steps"] = args.max_episode_steps
-    other_kwargs = None
-    wrappers = [partial(FlattenRGBDObservationWrapper, is_multi_task=args.is_multi_task, target_num_cams=args.target_num_cams, depth=args.include_depth)]
-    video_dir = args.checkpoint_path.replace('.pt', '__videos')
-    video_filename = f"{args.env_id}___ds:{args.perturbation_set}"
-    try:
-        envs = make_eval_envs(args.env_id, args.num_eval_envs, args.sim_backend, env_kwargs, other_kwargs, video_dir=video_dir if args.capture_video else None, wrappers=wrappers, video_filename=video_filename)
-    except PerturbationFactorDisabledError as e:
-        cprint(f"Variation factor disabled error: {e}", "red")
-        exit(0)
-    except Exception as e:
-        raise e
+            envs = make_eval_envs(
+                args.env_id,
+                args.num_eval_envs,
+                args.sim_backend,
+                env_kwargs,
+                other_kwargs,
+                video_dir=video_dir if args.capture_video else None,
+                wrappers=wrappers,
+                video_filename=video_filename,
+                info_on_video=args.metrics_on_video,
+            )
+        except PerturbationFactorDisabledError as e:
+            cprint(f"Variation factor disabled error: {e}", "red")
+            if args.results_path is None:
+                raise
+            # Replace placeholder with a permanent skip, then try the next pair.
+            finalize_results_row(
+                args,
+                duration_sec=time() - t0,
+                message="variation_factor_disabled",
+                n_episodes=0,
+                n_success=-1,
+                success_percent=-1,
+            )
+            remaining, n_total = get_remaining_eval_pairs(args)
+            cprint(f"Remaining eval pairs after skip: {len(remaining)}/{n_total}", "cyan")
+            continue
     obs_mode = "rgb+depth" if args.include_depth else "rgb"
 
     # agent setup
@@ -378,35 +459,25 @@ if __name__ == "__main__":
 
     n_episodes = 0
     n_success = 0
-    for episode_batch in eval_metrics["success_once"]:
-        n_episodes += len(episode_batch)
-        n_success += episode_batch.sum()
-    success_percentage = 100*(n_success / n_episodes)
+    # With num_envs=1, stacked success_once is shape (n_episodes,) of scalars;
+    # with num_envs>1 it is shape (n_chunks, num_envs). Flatten either case.
+    success_once = np.asarray(eval_metrics["success_once"]).reshape(-1)
+    n_episodes = int(success_once.size)
+    n_success = int(success_once.sum())
+    success_percentage = 100*(n_success / n_episodes) if n_episodes else 0.0
     print(f"Success rate: {success_percentage:.2f}% \t ({n_success}/{n_episodes})")
     envs.close()
 
     if args.results_path is not None:
         duration_sec = time() - t0
-        results_df = read_csv(args.results_path)
-        new_row = [
-            args.checkpoint_path,
-            args.pc_hostname,
-            args.now,
-            get_now_str(),
-            duration_sec,
-            args.perturbation_set.lower(),
-            args.env_id,
-            args.control_mode,
-            args.include_depth,
-            n_episodes,
-            args.max_episode_steps,
-            "results_df",
-            n_success,
-            f"{success_percentage:.5f}",
-        ]
-        results_df.loc[len(results_df)] = new_row
-        results_df.to_csv(args.results_path, index=False)
-        print(f"Saved results_df to {args.results_path}")
+        finalize_results_row(
+            args,
+            duration_sec=duration_sec,
+            message="results_df",
+            n_episodes=n_episodes,
+            n_success=n_success,
+            success_percent=f"{success_percentage:.5f}",
+        )
 
         remaining, n_total = get_remaining_eval_pairs(args)
         eta_hours = len(remaining) * duration_sec / 3600.0

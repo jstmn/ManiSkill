@@ -61,3 +61,4 @@ sbatch_*
 wandb/
 movies/
 movies.zip
+scripts/colosseum_v2_paper/temp.py

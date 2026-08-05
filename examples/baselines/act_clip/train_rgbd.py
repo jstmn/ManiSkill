@@ -84,6 +84,8 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
+    metrics_on_video: bool = True
+    """if True, overlay episode metrics (reward, etc.) on recorded video frames"""
 
     env_id: str = "PickCube-v1"
     """the id of the environment"""

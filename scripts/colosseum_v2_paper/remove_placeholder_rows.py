@@ -13,6 +13,7 @@ num_sucessful_episodes < 0 (those are completed skips, not placeholders).
 
 ### Example usage:
 python scripts/colosseum_v2_paper/remove_placeholder_rows.py logs/act_clip/single_arm.csv
+python scripts/colosseum_v2_paper/remove_placeholder_rows.py logs/act_clip/bimanual.csv
 """
 
 from __future__ import annotations

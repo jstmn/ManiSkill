@@ -22,21 +22,34 @@ python scripts/colosseum_v2_paper/parse_logs.py \
     --output-path logs/act_clip/single_arm
 
 python scripts/colosseum_v2_paper/parse_logs.py \
-    --results-paths logs/yggdrasil/results_bimanual_act.csv logs/yggdrasil_2/results_bimanual_act.csv \
-    --output-path logs/parsed_ACT/bimanual
+    --results-paths logs/act_clip/bimanual.csv \
+    --output-path logs/act_clip/bimanual
 
 # PI0.5
 python scripts/colosseum_v2_paper/parse_logs.py \
-    --results-paths logs/pi0/results_bimanual_5epochs.csv --output-path logs/parsed_pi0/bimanual_5epochs
+    --results-paths \
+        logs/pi0/results__bimanual__pythonsong-pi05_single_arm.csv \
+        logs/pi0/results_single_arm_5epochs.csv \
+    --output-path logs/pi0/single_arm
 
 python scripts/colosseum_v2_paper/parse_logs.py \
-    --results-paths logs/pi0/results_single_arm_5epochs.csv --output-path logs/parsed_pi0/single_arm_5epochs
+    --results-paths \
+        logs/pi0/results__bimanual__pythonsong-pi05_bimanual.csv \
+        logs/pi0/results_bimanual_5epochs.csv \
+    --output-path logs/pi0/bimanual
+
+# MolmoAct2
+python scripts/colosseum_v2_paper/parse_logs.py \
+    --results-paths \
+        logs/molmoact2/raw/results__single-arm__jstm-molmoact2_single_arm__GRAIL.csv \
+        logs/molmoact2/raw/results__single-arm__jstm-molmoact2_single_arm__JETSTREAM2.csv \
+    --output-path logs/molmoact2/single_arm
 
 python scripts/colosseum_v2_paper/parse_logs.py \
-    --results-paths logs/pi0/bimanual_pi05_1cam.csv --output-path logs/parsed_pi0/bimanual_1cam
-
-python scripts/colosseum_v2_paper/parse_logs.py \
-    --results-paths logs/pi0/single_arm_pi05_1cam.csv --output-path logs/parsed_pi0/single_arm_1cam
+    --results-paths \
+        logs/molmoact2/raw/results__bimanual__jstm-molmoact2_bimanual__GRAIL.csv \
+        logs/molmoact2/raw/results__bimanual__jstm-molmoact2_bimanual__JETSTREAM2.csv \
+    --output-path logs/molmoact2/bimanual
 
 """
 
